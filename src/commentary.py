@@ -239,8 +239,10 @@ class CommentarySelector:
             if version.get("language") == language:
                 text = version.get("text", "")
                 if isinstance(text, list):
-                    return " ".join(str(t) for t in self._flatten(text) if t)
-                return str(text) if text else ""
+                    raw = " ".join(str(t) for t in self._flatten(text) if t)
+                else:
+                    raw = str(text) if text else ""
+                return self._convert_html_to_whatsapp(raw)
 
         # Fallback to legacy fields
         if language == "he":
@@ -249,8 +251,34 @@ class CommentarySelector:
             text = text_data.get("text", "")
 
         if isinstance(text, list):
-            return " ".join(str(t) for t in self._flatten(text) if t)
-        return str(text) if text else ""
+            raw = " ".join(str(t) for t in self._flatten(text) if t)
+        else:
+            raw = str(text) if text else ""
+        return self._convert_html_to_whatsapp(raw)
+
+    def _convert_html_to_whatsapp(self, text: str) -> str:
+        """Convert HTML formatting to WhatsApp markdown."""
+        import re
+
+        if not text:
+            return ""
+
+        # Convert <b>...</b> to *...* (WhatsApp bold)
+        text = re.sub(r'<b>([^<]+)</b>', r'*\1*', text)
+
+        # Convert <i>...</i> to _..._ (WhatsApp italic)
+        text = re.sub(r'<i>([^<]+)</i>', r'_\1_', text)
+
+        # Convert <strong>...</strong> to *...*
+        text = re.sub(r'<strong>([^<]+)</strong>', r'*\1*', text)
+
+        # Convert <em>...</em> to _..._
+        text = re.sub(r'<em>([^<]+)</em>', r'_\1_', text)
+
+        # Remove any remaining HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+
+        return text.strip()
 
     def _flatten(self, nested: list) -> list:
         """Flatten nested lists."""

@@ -140,8 +140,11 @@ class OutputFormatter:
             "",
         ]
 
-        # Use key verses (most important by link count)
-        verses_to_show = aliyah_text.key_verses[: self.max_verses]
+        # Use key verses, but sort them in sequential order (by verse reference)
+        verses_to_show = sorted(
+            aliyah_text.key_verses[: self.max_verses],
+            key=lambda v: self._verse_sort_key(v.ref)
+        )
 
         for verse in verses_to_show:
             # Hebrew with nikud
@@ -168,17 +171,25 @@ class OutputFormatter:
             "",
         ]
 
-        # Commentary text (prefer English, truncate if needed)
-        text = commentary.english_text or commentary.hebrew_text
-        if len(text) > self.max_commentary_chars:
-            text = text[: self.max_commentary_chars].rsplit(" ", 1)[0] + "..."
+        # Show Hebrew text (primary source with dibor haMatchil)
+        if commentary.hebrew_text:
+            hebrew = commentary.hebrew_text
+            if len(hebrew) > self.max_commentary_chars:
+                hebrew = hebrew[: self.max_commentary_chars].rsplit(" ", 1)[0] + "..."
+            lines.append(hebrew)
+            lines.append("")
 
-        lines.append(text)
-        lines.append("")
+        # Show English translation if available
+        if commentary.english_text:
+            english = commentary.english_text
+            if len(english) > self.max_commentary_chars:
+                english = english[: self.max_commentary_chars].rsplit(" ", 1)[0] + "..."
+            lines.append(f"{self.ITALIC_START}{english}{self.ITALIC_END}")
+            lines.append("")
 
         # Selection reason (why this commentary)
         lines.append(
-            f"{self.ITALIC_START}Selected: {commentary.selection_reason}{self.ITALIC_END}"
+            f"Selected: {commentary.selection_reason}"
         )
 
         return "\n".join(lines)
@@ -309,6 +320,23 @@ class OutputFormatter:
             DayOfWeek.SATURDAY: "Shabbat",
         }
         return names.get(day, "")
+
+    def _verse_sort_key(self, ref: str) -> tuple[int, int]:
+        """
+        Extract chapter and verse numbers for sorting.
+
+        Handles refs like "Exodus 3:15" -> (3, 15)
+        """
+        try:
+            # Split "Exodus 3:15" -> ["Exodus", "3:15"]
+            parts = ref.rsplit(" ", 1)
+            if len(parts) == 2:
+                chapter_verse = parts[1]
+                chapter, verse = chapter_verse.split(":")
+                return (int(chapter), int(verse))
+        except (ValueError, IndexError):
+            pass
+        return (0, 0)
 
 
 def format_for_markdown(output: FormattedOutput) -> str:

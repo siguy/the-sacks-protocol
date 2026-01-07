@@ -116,7 +116,7 @@ class SefariaClient:
             ref: Sefaria reference (e.g., "Genesis 1:1", "Genesis 32:4-30")
             with_commentary: Include linked commentaries
             version: Specific version/translation name
-            language: 'he' for Hebrew, 'en' for English
+            language: 'he' for Hebrew, 'en' for English (or None for both)
 
         Returns:
             {
@@ -127,19 +127,32 @@ class SefariaClient:
                 ...
             }
         """
-        # URL encode the reference
-        encoded_ref = ref.replace(" ", "%20")
+        # URL encode the reference - handle special chars
+        encoded_ref = ref.replace(" ", "%20").replace(";", "%3B")
         endpoint = f"/v3/texts/{encoded_ref}"
 
-        params = {}
-        if not with_commentary:
-            params["commentary"] = "0"
-        if version:
-            params["version"] = version
-        if language:
-            params["lang"] = language
+        # Build query string manually to handle multiple version params
+        query_parts = []
 
-        return await self._request(endpoint, params or None)
+        if not with_commentary:
+            query_parts.append("commentary=0")
+
+        if language:
+            # Request specific language
+            query_parts.append(f"version={language}|all")
+        else:
+            # Request both Hebrew and English
+            query_parts.append("version=he|all")
+            query_parts.append("version=en|all")
+
+        if version:
+            query_parts.append(f"ven={version}")
+
+        if query_parts:
+            endpoint = f"{endpoint}?{'&'.join(query_parts)}"
+            return await self._request(endpoint)
+
+        return await self._request(endpoint)
 
     async def get_text_versions(self, ref: str) -> list[dict[str, Any]]:
         """Get available versions/translations for a text."""

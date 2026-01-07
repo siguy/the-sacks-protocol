@@ -318,6 +318,7 @@ Rate the relevance of this essay to this aliyah."""
         relevance_data: dict[str, EssayRelevance] | None,
         aliyah_num: int,
         threshold: int = 4,
+        aliyah_keywords: list[str] | None = None,
     ) -> tuple[SacksEssay | None, RelevanceScore | None, bool]:
         """
         Select the best essay for a specific aliyah.
@@ -327,6 +328,7 @@ Rate the relevance of this essay to this aliyah."""
             relevance_data: Pre-computed relevance (if available)
             aliyah_num: Current aliyah number
             threshold: Minimum score to consider "relevant"
+            aliyah_keywords: Keywords from aliyah for heuristic matching
 
         Returns:
             (selected_essay, relevance_score, is_aliyah_relevant)
@@ -355,8 +357,44 @@ Rate the relevance of this essay to this aliyah."""
             # No strong match - return first essay without relevance claim
             return essays[0], best_score, False
 
-        # No relevance data - return first essay
-        return essays[0], None, False
+        # No relevance data - use heuristic title/content matching
+        best_essay = self._heuristic_select(essays, aliyah_keywords)
+        return best_essay, None, False
+
+    def _heuristic_select(
+        self,
+        essays: list[SacksEssay],
+        aliyah_keywords: list[str] | None,
+    ) -> SacksEssay:
+        """
+        Select essay using heuristic keyword matching when no relevance data available.
+        """
+        if not aliyah_keywords or not essays:
+            return essays[0] if essays else None
+
+        # Score each essay by keyword matches in title and first 500 chars of text
+        scored = []
+        keywords_lower = [kw.lower() for kw in aliyah_keywords]
+
+        for essay in essays:
+            score = 0
+            title_lower = essay.title.lower()
+            text_start = essay.text[:500].lower()
+
+            for kw in keywords_lower:
+                # Title matches weighted more heavily
+                if kw in title_lower:
+                    score += 3
+                if kw in text_start:
+                    score += 1
+
+            scored.append((score, essay))
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        # Return highest scoring essay (or first if no matches)
+        return scored[0][1]
 
 
 # ─────────────────────────────────────────────────────────────────

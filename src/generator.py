@@ -107,6 +107,9 @@ class DailyGenerator:
                     if relevance_data:
                         print("   Using pre-computed relevance scores")
 
+                # Extract keywords from aliyah for heuristic matching
+                aliyah_keywords = self._extract_keywords(primary_aliyah_text)
+
                 # Select best essay
                 primary_aliyah_num = today_info.aliyot[0].number
                 sacks_essay, relevance_score, is_aliyah_relevant = (
@@ -114,6 +117,7 @@ class DailyGenerator:
                         sacks_corpus.essays,
                         relevance_data,
                         primary_aliyah_num,
+                        aliyah_keywords=aliyah_keywords,
                     )
                 )
 
@@ -139,6 +143,40 @@ class DailyGenerator:
             self._save_output(output, today_info)
 
             return output
+
+    def _extract_keywords(self, aliyah_text: AliyahText) -> list[str]:
+        """
+        Extract keywords from aliyah text for heuristic essay matching.
+
+        Looks for names, places, and significant nouns in the English text.
+        """
+        # Common biblical keywords to look for
+        name_patterns = [
+            "Moses", "Aaron", "Pharaoh", "God", "Lord", "Israel", "Egypt",
+            "Abraham", "Isaac", "Jacob", "Joseph", "burning bush", "bush",
+            "Sinai", "Horeb", "plague", "Exodus", "freedom", "liberation",
+            "slave", "slavery", "covenant", "promise", "fear", "afraid",
+            "name", "names", "I AM", "YHWH", "Midian", "Jethro", "Zipporah",
+        ]
+
+        keywords = []
+
+        # Check English text of key verses for keywords
+        for verse in aliyah_text.key_verses:
+            text_lower = verse.english.lower() if verse.english else ""
+            for pattern in name_patterns:
+                if pattern.lower() in text_lower and pattern not in keywords:
+                    keywords.append(pattern)
+
+        # Also check all verses if we don't have enough keywords
+        if len(keywords) < 3:
+            for verse in aliyah_text.verses[:10]:  # Check first 10 verses
+                text_lower = verse.english.lower() if verse.english else ""
+                for pattern in name_patterns:
+                    if pattern.lower() in text_lower and pattern not in keywords:
+                        keywords.append(pattern)
+
+        return keywords[:10]  # Return top 10 keywords
 
     def _combine_aliyah_texts(self, aliyah_texts: list[AliyahText]) -> AliyahText:
         """Combine multiple aliyah texts (for Friday double portion)."""

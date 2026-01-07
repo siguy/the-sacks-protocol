@@ -131,23 +131,51 @@ class AliyahRetriever:
                     title = version.get("versionTitle", "")
                     if preferred.lower() in title.lower():
                         text = version.get("text", [])
-                        if isinstance(text, list):
-                            return self._flatten(text), title
-                        return [text], title
+                        if text:
+                            if isinstance(text, list):
+                                flattened = self._flatten(text)
+                                if flattened:
+                                    return flattened, title
+                            elif text:
+                                return [text], title
 
         # Fallback to any English version
         for version in versions:
             if version.get("language") == "en":
                 text = version.get("text", [])
                 title = version.get("versionTitle", "Unknown")
-                if isinstance(text, list):
-                    return self._flatten(text), title
-                return [text], title
+                if text:
+                    if isinstance(text, list):
+                        flattened = self._flatten(text)
+                        if flattened:
+                            return flattened, title
+                    elif text:
+                        return [text], title
 
-        # Fallback to 'text' field (older API)
+        # If no English in response, try fetching with explicit English request
+        try:
+            en_data = await self.client.get_text(ref, language="en")
+            en_versions = en_data.get("versions", [])
+            for version in en_versions:
+                if version.get("language") == "en":
+                    text = version.get("text", [])
+                    title = version.get("versionTitle", "Sefaria Translation")
+                    if text:
+                        if isinstance(text, list):
+                            flattened = self._flatten(text)
+                            if flattened:
+                                return flattened, title
+                        elif text:
+                            return [text], title
+        except Exception:
+            pass
+
+        # Final fallback to 'text' field (older API)
         text = text_data.get("text", [])
         if isinstance(text, list):
-            return self._flatten(text), "Sefaria Default"
+            flattened = self._flatten(text)
+            if flattened:
+                return flattened, "Sefaria Default"
         return [text] if text else [], "Sefaria Default"
 
     def _flatten(self, nested: list) -> list[str]:

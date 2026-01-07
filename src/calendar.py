@@ -11,9 +11,24 @@ import asyncio
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import IntEnum
+from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .sefaria_client import SefariaClient
+
+
+def _load_aliyot_data() -> dict:
+    """Load aliyah boundaries from data file."""
+    data_path = Path(__file__).parent.parent / "data" / "aliyot.yaml"
+    if data_path.exists():
+        with open(data_path) as f:
+            return yaml.safe_load(f)
+    return {}
+
+
+ALIYOT_DATA = _load_aliyot_data()
 
 
 class DayOfWeek(IntEnum):
@@ -123,7 +138,7 @@ class JewishCalendar:
             raise ValueError(f"No parsha found for {target_date}")
 
         # Get aliyah boundaries for this parsha
-        aliyah_map = await self._get_aliyah_boundaries(parsha.ref)
+        aliyah_map = await self._get_aliyah_boundaries(parsha.ref, parsha.name_en)
 
         # Determine which aliyot for today
         today_aliyah_nums = ALIYAH_SCHEDULE[day_of_week]
@@ -170,31 +185,71 @@ class JewishCalendar:
                 return book
         return "Unknown"
 
-    async def _get_aliyah_boundaries(self, parsha_ref: str) -> dict[int, Aliyah]:
+    async def _get_aliyah_boundaries(self, parsha_ref: str, parsha_name: str = "") -> dict[int, Aliyah]:
         """
         Get the verse boundaries for each aliyah in a parsha.
 
-        This uses Sefaria's parsha structure or falls back to a calculation.
+        Uses local data file first, then falls back to Sefaria API.
         """
-        # Try to get from Sefaria's index
-        # The parsha index should contain aliyah information
+        # First, try our local aliyot data file
+        if ALIYOT_DATA and "aliyot" in ALIYOT_DATA:
+            # Try exact match first
+            parsha_data = ALIYOT_DATA["aliyot"].get(parsha_name)
+
+            # Try common variations if exact match fails
+            if not parsha_data:
+                name_variations = [
+                    parsha_name,
+                    parsha_name.replace(" ", "_"),
+                    parsha_name.replace("-", " "),
+                    parsha_name.title(),
+                ]
+                for name in name_variations:
+                    parsha_data = ALIYOT_DATA["aliyot"].get(name)
+                    if parsha_data:
+                        break
+
+            if parsha_data and "aliyot" in parsha_data:
+                book = parsha_data.get("book", self._book_from_ref(parsha_ref))
+                return self._parse_aliyot_from_data(parsha_data["aliyot"], book)
+
+        # Fallback: Try Sefaria's index
         try:
-            # Extract book and parsha from ref
-            book = self._book_from_ref(parsha_ref)
-
-            # Sefaria stores aliyah info in a specific structure
-            # We'll try the parsha index first
-            index_data = await self.client.get_index(f"Parashat {self._ref_to_parsha_name(parsha_ref)}")
-
+            index_data = await self.client.get_index(f"Parashat {parsha_name}")
             if "aliyot" in index_data:
                 return self._parse_aliyot_from_index(index_data["aliyot"])
-
         except Exception:
             pass
 
-        # Fallback: Use Sefaria's text structure to estimate aliyot
-        # This divides the parsha roughly into 7 parts
+        # Final fallback: estimate
         return await self._estimate_aliyot(parsha_ref)
+
+    def _parse_aliyot_from_data(self, aliyot_dict: dict, book: str) -> dict[int, Aliyah]:
+        """Parse aliyot from our local data file."""
+        result = {}
+        for aliyah_num, ref_str in aliyot_dict.items():
+            num = int(aliyah_num)
+            # ref_str is like "Exodus 3:1-3:15"
+            parts = ref_str.split(" ", 1)
+            if len(parts) == 2:
+                verse_range = parts[1]
+                if "-" in verse_range:
+                    start, end = verse_range.split("-")
+                    # Handle formats like "3:1-3:15" or "3:1-15"
+                    if ":" not in end:
+                        # Same chapter, just verse number
+                        start_chapter = start.split(":")[0]
+                        end = f"{start_chapter}:{end}"
+                else:
+                    start = end = verse_range
+
+                result[num] = Aliyah(
+                    number=num,
+                    ref=verse_range,
+                    start_verse=f"{book} {start}",
+                    end_verse=f"{book} {end}",
+                )
+        return result
 
     def _ref_to_parsha_name(self, ref: str) -> str:
         """

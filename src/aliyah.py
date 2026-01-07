@@ -230,17 +230,39 @@ class AliyahRetriever:
         Identify key verses by counting their links in Sefaria.
 
         The most-linked verses are considered most important.
+        To avoid timeout with large aliyot, we sample strategically.
         """
-        # Get link counts for each verse
-        tasks = [self._get_link_count(verse) for verse in verses]
+        # For large verse sets, sample strategically instead of checking all
+        MAX_TO_CHECK = 15
+
+        if len(verses) <= MAX_TO_CHECK:
+            verses_to_check = verses
+        else:
+            # Sample: first 5, last 5, and 5 from middle
+            verses_to_check = (
+                verses[:5] +  # First 5
+                verses[len(verses)//2 - 2 : len(verses)//2 + 3] +  # Middle 5
+                verses[-5:]  # Last 5
+            )
+            # Remove duplicates while preserving order
+            seen = set()
+            unique = []
+            for v in verses_to_check:
+                if v.ref not in seen:
+                    seen.add(v.ref)
+                    unique.append(v)
+            verses_to_check = unique
+
+        # Get link counts for sampled verses
+        tasks = [self._get_link_count(verse) for verse in verses_to_check]
         link_counts = await asyncio.gather(*tasks)
 
         # Update verses with link counts
-        for verse, count in zip(verses, link_counts):
+        for verse, count in zip(verses_to_check, link_counts):
             verse.link_count = count
 
         # Sort by link count and return top N
-        sorted_verses = sorted(verses, key=lambda v: v.link_count, reverse=True)
+        sorted_verses = sorted(verses_to_check, key=lambda v: v.link_count, reverse=True)
         return sorted_verses[: self.max_key_verses]
 
     async def _get_link_count(self, verse: Verse) -> int:

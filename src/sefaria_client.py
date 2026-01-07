@@ -44,8 +44,8 @@ class SefariaClient:
         if self._client:
             await self._client.aclose()
 
-    async def _request(self, endpoint: str, params: dict | None = None) -> dict[str, Any]:
-        """Make a request with retry logic."""
+    async def _request(self, endpoint: str, params: dict | list | None = None) -> dict[str, Any]:
+        """Make a request with retry logic. Params can be dict or list of tuples."""
         if not self._client:
             raise RuntimeError("Client not initialized. Use 'async with' context manager.")
 
@@ -127,33 +127,23 @@ class SefariaClient:
                 ...
             }
         """
-        # URL encode the reference - spaces only, keep semicolons as-is for Sefaria
-        encoded_ref = ref.replace(" ", "%20")
+        # Let httpx handle URL encoding - just use the ref directly
+        # For path segment, we need to URL encode manually since httpx won't
+        import urllib.parse
+        encoded_ref = urllib.parse.quote(ref, safe='')
         endpoint = f"/v3/texts/{encoded_ref}"
 
-        # Build query string manually to handle multiple version params
-        # Note: pipe characters need URL encoding
-        query_parts = []
-
+        # Build params - httpx handles encoding of query params
+        params = {}
         if not with_commentary:
-            query_parts.append("commentary=0")
-
-        if language:
-            # Request specific language - encode pipe as %7C
-            query_parts.append(f"version={language}%7Call")
-        else:
-            # Request both Hebrew and English - encode pipe as %7C
-            query_parts.append("version=he%7Call")
-            query_parts.append("version=en%7Call")
-
+            params["commentary"] = "0"
         if version:
-            query_parts.append(f"ven={version}")
+            params["ven"] = version
 
-        if query_parts:
-            endpoint = f"{endpoint}?{'&'.join(query_parts)}"
-            return await self._request(endpoint)
+        # Note: Sefaria v3 returns both Hebrew and English by default
+        # No need to specify version params
 
-        return await self._request(endpoint)
+        return await self._request(endpoint, params if params else None)
 
     async def get_text_versions(self, ref: str) -> list[dict[str, Any]]:
         """Get available versions/translations for a text."""

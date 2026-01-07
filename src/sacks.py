@@ -231,8 +231,10 @@ class SacksRetriever:
                     # Get English title
                     title = self._get_english_title(essay_titles) or essay_key
 
-                    # Normalize the essay key for URL - replace spaces with underscores
-                    normalized_key = essay_key.replace(" ", "_")
+                    # Normalize the essay key for URL:
+                    # - Replace spaces with underscores
+                    # - Encode question marks to avoid URL conflicts
+                    normalized_key = essay_key.replace(" ", "_").replace("?", "%3F")
 
                     # Build reference - Sefaria uses underscores not spaces
                     ref = f"Covenant_and_Conversation;_{book};_{book_subtitle},_{parsha},_{normalized_key}"

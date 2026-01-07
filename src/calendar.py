@@ -232,7 +232,8 @@ class JewishCalendar:
             # ref_str is like "Exodus 3:1-3:15"
             parts = ref_str.split(" ", 1)
             if len(parts) == 2:
-                verse_range = parts[1]
+                ref_book = parts[0]  # "Exodus"
+                verse_range = parts[1]  # "3:1-3:15"
                 if "-" in verse_range:
                     start, end = verse_range.split("-")
                     # Handle formats like "3:1-3:15" or "3:1-15"
@@ -245,9 +246,9 @@ class JewishCalendar:
 
                 result[num] = Aliyah(
                     number=num,
-                    ref=verse_range,
-                    start_verse=f"{book} {start}",
-                    end_verse=f"{book} {end}",
+                    ref=f"{ref_book} {start}-{end}",  # Include book name: "Exodus 3:1-3:15"
+                    start_verse=f"{ref_book} {start}",
+                    end_verse=f"{ref_book} {end}",
                 )
         return result
 

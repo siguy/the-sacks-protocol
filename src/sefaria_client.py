@@ -127,23 +127,24 @@ class SefariaClient:
                 ...
             }
         """
-        # URL encode the reference - handle special chars
-        encoded_ref = ref.replace(" ", "%20").replace(";", "%3B")
+        # URL encode the reference - spaces only, keep semicolons as-is for Sefaria
+        encoded_ref = ref.replace(" ", "%20")
         endpoint = f"/v3/texts/{encoded_ref}"
 
         # Build query string manually to handle multiple version params
+        # Note: pipe characters need URL encoding
         query_parts = []
 
         if not with_commentary:
             query_parts.append("commentary=0")
 
         if language:
-            # Request specific language
-            query_parts.append(f"version={language}|all")
+            # Request specific language - encode pipe as %7C
+            query_parts.append(f"version={language}%7Call")
         else:
-            # Request both Hebrew and English
-            query_parts.append("version=he|all")
-            query_parts.append("version=en|all")
+            # Request both Hebrew and English - encode pipe as %7C
+            query_parts.append("version=he%7Call")
+            query_parts.append("version=en%7Call")
 
         if version:
             query_parts.append(f"ven={version}")
@@ -206,7 +207,8 @@ class SefariaClient:
         - Categories
         - Schema (section structure)
         """
-        encoded_title = title.replace(" ", "%20").replace(";", "%3B")
+        # Only encode spaces, keep semicolons as Sefaria uses them as separators
+        encoded_title = title.replace(" ", "%20")
         return await self._request(f"/v2/index/{encoded_title}")
 
     async def get_table_of_contents(self) -> list[dict[str, Any]]:

@@ -1,0 +1,99 @@
+# Commentary Rotation by Day of Week
+#
+# Each day features a different commentator tradition:
+# - Pshat (plain meaning): Rashi, Rashbam, Ibn Ezra
+# - Drash (interpretive): Ramban, Midrash
+# - Chassidic (spiritual): Sefat Emet, Or HaChaim
+
+rotation:
+  # Sunday - Start with the foundation
+  0:
+    primary: "Rashi"
+    fallback: ["Rashbam", "Ibn Ezra"]
+    tradition: "pshat"
+
+  # Monday - Philosophical depth
+  1:
+    primary: "Ramban"
+    fallback: ["Sforno", "Rashi"]
+    tradition: "philosophical"
+
+  # Tuesday - Aggadic expansion
+  2:
+    primary: "Bereishit Rabbah"  # Adjusts by book: Shemot Rabbah, etc.
+    fallback: ["Midrash Tanchuma", "Rashi"]
+    tradition: "midrash"
+
+  # Wednesday - Spiritual insight
+  3:
+    primary: "Sefat Emet"
+    fallback: ["Kedushat Levi", "Or HaChaim", "Rashi"]
+    tradition: "chassidic"
+
+  # Thursday - Rationalist/ethical lens
+  4:
+    primary: "Ibn Ezra"
+    fallback: ["Sforno", "Kli Yakar", "Rashi"]
+    tradition: "rationalist"
+
+  # Friday - Shabbat preparation, mystical
+  5:
+    primary: "Or HaChaim"
+    fallback: ["Sefat Emet", "Ramban", "Rashi"]
+    tradition: "mystical"
+
+  # Saturday - (Not typically generated, Shabbat)
+  6:
+    primary: "Rashi"
+    fallback: []
+    tradition: "pshat"
+
+# Midrash mapping by Torah book
+midrash_by_book:
+  Genesis: "Bereishit Rabbah"
+  Exodus: "Shemot Rabbah"
+  Leviticus: "Vayikra Rabbah"
+  Numbers: "Bamidbar Rabbah"
+  Deuteronomy: "Devarim Rabbah"
+
+# Commentator metadata for display
+commentators:
+  Rashi:
+    hebrew: "רש״י"
+    full_name: "Rabbi Shlomo Yitzchaki"
+    era: "Rishonim (1040-1105)"
+
+  Ramban:
+    hebrew: "רמב״ן"
+    full_name: "Rabbi Moshe ben Nachman"
+    era: "Rishonim (1194-1270)"
+
+  Ibn Ezra:
+    hebrew: "אבן עזרא"
+    full_name: "Rabbi Abraham ibn Ezra"
+    era: "Rishonim (1089-1167)"
+
+  Sforno:
+    hebrew: "ספורנו"
+    full_name: "Rabbi Ovadiah Sforno"
+    era: "Rishonim (1475-1550)"
+
+  Or HaChaim:
+    hebrew: "אור החיים"
+    full_name: "Rabbi Chaim ibn Attar"
+    era: "Acharonim (1696-1743)"
+
+  Sefat Emet:
+    hebrew: "שפת אמת"
+    full_name: "Rabbi Yehudah Aryeh Leib Alter"
+    era: "Chassidic (1847-1905)"
+
+  Kli Yakar:
+    hebrew: "כלי יקר"
+    full_name: "Rabbi Shlomo Ephraim Luntschitz"
+    era: "Acharonim (1550-1619)"
+
+  Kedushat Levi:
+    hebrew: "קדושת לוי"
+    full_name: "Rabbi Levi Yitzchak of Berditchev"
+    era: "Chassidic (1740-1809)"

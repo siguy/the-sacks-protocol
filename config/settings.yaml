@@ -1,0 +1,49 @@
+# The Sacks Protocol - Configuration Settings
+
+# Sefaria API settings
+sefaria:
+  base_url: "https://www.sefaria.org/api"
+  timeout: 30  # seconds
+  retry_attempts: 3
+  retry_delay: 1  # seconds
+
+# Hebrew text settings
+hebrew:
+  include_nikud: true
+  include_cantillation: false  # taamei hamikra - too cluttered for WhatsApp
+  normalization: "NFC"
+
+# Translation preferences
+translation:
+  primary: "Koren"
+  fallback: "The Contemporary Torah, JPS, 2006"
+
+# Relevance scoring settings
+relevance:
+  model: "claude-3-haiku-20240307"
+  threshold_direct: 5      # Score 5 = direct relevance
+  threshold_strong: 4      # Score 4+ = highlight connection
+  threshold_moderate: 3    # Score 3 = mention connection
+  precompute: true         # Use pre-computed scores
+
+# Output settings
+output:
+  format: "whatsapp"       # whatsapp, markdown, html
+  max_commentary_length: 500  # characters
+  max_sacks_length: 800    # characters for insight section
+  include_sources: true
+
+# Aliyah schedule (for daily cadence)
+aliyah_schedule:
+  sunday: 1
+  monday: 2
+  tuesday: 3
+  wednesday: 4
+  thursday: 5
+  friday: [6, 7]  # Double portion for Shabbat prep
+
+# Key verse selection
+key_verses:
+  method: "link_count"     # link_count, first_last, manual
+  max_verses: 4            # Maximum key verses to show
+  min_link_count: 5        # Minimum links to consider "important"

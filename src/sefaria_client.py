@@ -60,25 +60,12 @@ class SefariaClient:
                 response.raise_for_status()
                 data = response.json()
                 # Debug: show response info for text requests
-                if '/texts/' in endpoint:
-                    print(f"   DEBUG: Response keys: {list(data.keys())[:8]}")
-                    if 'versions' in data:
-                        print(f"   DEBUG: versions count: {len(data['versions'])}")
-                        for v in data['versions'][:2]:
-                            lang = v.get('language', '?')
-                            title = v.get('versionTitle', '?')[:30]
-                            text = v.get('text', [])
-                            tlen = len(text) if isinstance(text, list) else 1
-                            print(f"   DEBUG: Version: {lang} - {title} ({tlen} items)")
-                    # Also check direct he/text fields
-                    if 'he' in data:
-                        he = data['he']
-                        hlen = len(he) if isinstance(he, list) else 1
-                        print(f"   DEBUG: 'he' field: {hlen} items")
-                    if 'text' in data:
-                        txt = data['text']
-                        tlen = len(txt) if isinstance(txt, list) else 1
-                        print(f"   DEBUG: 'text' field: {tlen} items")
+                if '/texts/' in endpoint and '/texts/versions' not in endpoint:
+                    he = data.get('he', [])
+                    txt = data.get('text', [])
+                    hlen = len(he) if isinstance(he, list) else (1 if he else 0)
+                    tlen = len(txt) if isinstance(txt, list) else (1 if txt else 0)
+                    print(f"   DEBUG: he={hlen} items, text={tlen} items")
                     if 'error' in data:
                         print(f"   DEBUG: Error: {data['error']}")
                 return data
@@ -155,16 +142,18 @@ class SefariaClient:
             }
         """
         # URL encode the ref for path segment
-        # Use urllib.parse.quote but keep safe chars that don't need encoding
-        # and that httpx won't double-encode
         import urllib.parse
         encoded_ref = urllib.parse.quote(ref, safe=':;,-')
-        endpoint = f"/v3/texts/{encoded_ref}"
 
-        # Build params - don't specify version to get default text
-        params = []
+        # Use v2 API - returns both 'he' and 'text' (English) by default
+        endpoint = f"/texts/{encoded_ref}"
+
+        # Build params
+        params = {}
         if not with_commentary:
-            params.append(("commentary", "0"))
+            params["commentary"] = "0"
+        if language:
+            params["lang"] = language
 
         return await self._request(endpoint, params if params else None)
 

@@ -188,11 +188,24 @@ class AliyahRetriever:
         """
         Normalize Hebrew text.
 
+        - Strip HTML tags and entities
         - Apply NFC normalization
-        - Optionally strip cantillation marks (keep nikud)
+        - Strip cantillation marks (keep nikud)
         """
+        import re
+
         if not text:
             return ""
+
+        # Strip HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+
+        # Convert common HTML entities
+        text = text.replace('&thinsp;', '')
+        text = text.replace('&nbsp;', ' ')
+        text = text.replace('&amp;', '&')
+        text = text.replace('&lt;', '<')
+        text = text.replace('&gt;', '>')
 
         # NFC normalization for consistent Unicode
         normalized = unicodedata.normalize("NFC", text)

@@ -292,26 +292,17 @@ class SacksRetriever:
             return None
 
     def _extract_essay_text(self, text_data: dict) -> str:
-        """Extract essay text from Sefaria response."""
-        # Try v3 versions array
-        versions = text_data.get("versions", [])
-
-        for version in versions:
-            if version.get("language") == "en":
-                text = version.get("text", "")
-                if isinstance(text, list):
-                    raw = self._flatten_text(text)
-                else:
-                    raw = str(text) if text else ""
-                return self._convert_html_to_whatsapp(raw)
-
-        # Fallback to legacy 'text' field
+        """Extract essay text from Sefaria v2 API response."""
+        # v2 API returns English in 'text' field
         text = text_data.get("text", "")
         if isinstance(text, list):
             raw = self._flatten_text(text)
         else:
             raw = str(text) if text else ""
-        return self._convert_html_to_whatsapp(raw)
+
+        result = self._convert_html_to_whatsapp(raw)
+        print(f"   DEBUG: Essay text length: {len(result)}")
+        return result
 
     def _convert_html_to_whatsapp(self, text: str) -> str:
         """Convert HTML formatting to WhatsApp markdown."""

@@ -119,11 +119,26 @@ class AliyahRetriever:
         text = text_data.get("text", [])
         if text:
             flattened = self._flatten(text) if isinstance(text, list) else [text]
-            result = [t for t in flattened if t]
+            # Strip HTML from English text
+            result = [self._strip_html(t) for t in flattened if t]
             source = text_data.get("versionTitle", "Sefaria Translation")
             print(f"   DEBUG: Extracted {len(result)} English texts")
             return result, source
         return [], "No Translation Found"
+
+    def _strip_html(self, text: str) -> str:
+        """Strip HTML tags and entities from text."""
+        import re
+        if not text:
+            return ""
+        # Remove HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        # Convert common HTML entities
+        text = text.replace('&nbsp;', ' ')
+        text = text.replace('&amp;', '&')
+        text = text.replace('&lt;', '<')
+        text = text.replace('&gt;', '>')
+        return text.strip()
 
     def _flatten(self, nested: list) -> list[str]:
         """Flatten nested lists from Sefaria response."""

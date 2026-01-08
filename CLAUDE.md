@@ -153,6 +153,34 @@ These principles guide the current implementation and should inform future itera
 - **Link graph drives commentary**: The most-linked verse is automatically the most important verse
 - **Koren translation only**: Matches Rabbi Sacks' preference for accuracy over flowery English
 
+## Development Philosophy
+
+### Code Before AI
+Prefer deterministic solutions over AI-generated ones:
+1. **Bash script** - If repeatable, write a script
+2. **Code change** - If configurable, modify config files
+3. **AI assistance** - Only when logic requires understanding/synthesis
+
+### Verification-Driven Development
+Define success criteria BEFORE making changes:
+- **Text generation**: Verify all 3 sections present (Text, Commentary, Essay)
+- **API changes**: Test with real Sefaria requests, check response structure
+- **Formatting changes**: Run generator, inspect output file format
+- **Config changes**: Verify YAML parses correctly, test with edge cases
+
+### Clear Separation of Concerns
+```
+config/          # User-customizable (rotation, settings)
+data/aliyot.yaml # System-immutable (Torah structure)
+src/             # Logic (modify carefully, affects all outputs)
+output/          # Generated content (ephemeral, git-ignored)
+```
+
+**When modifying:**
+- `config/rotation.yaml` - Safe, affects commentary selection only
+- `data/aliyot.yaml` - Dangerous, must match traditional Torah divisions
+- `src/*.py` - Test thoroughly, impacts entire pipeline
+
 ## Systematic Error Detection
 
 When making changes or debugging, cycle through these checks:
@@ -181,3 +209,35 @@ When making changes or debugging, cycle through these checks:
 - Generate output: `python3 -m src.generator`
 - Check output format matches documented structure
 - Verify all three sections appear (Text, Commentary, Sacksian Lens)
+
+## Success Criteria for Common Operations
+
+Before considering a task complete, verify these outcomes:
+
+### Adding/Changing Translation Source
+**Success**:
+- Output shows correct `Translation:` line
+- Hebrew text still has nikud (vowel points)
+- English matches the specified translation
+- Verse references are identical in both languages
+
+### Modifying Essay Section Extraction
+**Success**:
+- All 3 sections extracted (difficulty, insight, call)
+- No mid-sentence truncation (ends with `.` or `!` or `?`)
+- Sections are from the correct essay (check title matches)
+- Sections make sense and represent the essay's flow
+
+### Fixing Verse Numbering
+**Success**:
+- Verse count matches aliyah boundaries in `data/aliyot.yaml`
+- Multi-chapter refs transition correctly (e.g., 3:22 → 4:1, not 3:23)
+- No missing verses, no duplicate numbers
+- Verse refs can be looked up on Sefaria.org
+
+### Changing Commentary Rotation
+**Success**:
+- Correct commentator appears for each day of week
+- Fallback logic works when primary unavailable
+- Hebrew name displays correctly (RTL text)
+- Commentary is actually on a verse from today's aliyah

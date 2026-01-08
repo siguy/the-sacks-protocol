@@ -61,10 +61,10 @@ class AliyahRetriever:
         # Construct the full reference
         ref = self._build_ref(aliyah)
 
-        # Fetch Hebrew and English separately for reliability
-        # Sefaria v3 API works better with separate language requests
-        hebrew_data = await self.client.get_text(ref, language="he")
-        english_data = await self.client.get_text(ref, language="en")
+        # Fetch Hebrew and English in parallel for speed
+        hebrew_task = self.client.get_text(ref, language="he")
+        english_task = self.client.get_text(ref, language="en")
+        hebrew_data, english_data = await asyncio.gather(hebrew_task, english_task)
 
         # Extract Hebrew and English from separate responses
         hebrew_texts = self._extract_hebrew(hebrew_data)

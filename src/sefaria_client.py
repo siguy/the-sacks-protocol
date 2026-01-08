@@ -20,7 +20,7 @@ class SefariaConfig:
     """Configuration for Sefaria API client."""
 
     base_url: str = "https://www.sefaria.org/api"
-    timeout: int = 30
+    timeout: int = 60  # Increased for slow endpoints like /links
     retry_attempts: int = 3
     retry_delay: float = 1.0
 
@@ -188,7 +188,8 @@ class SefariaClient:
         - type: Link type (commentary, quotation, etc.)
         - category: Category of the linked text
         """
-        encoded_ref = ref.replace(" ", "%20")
+        import urllib.parse
+        encoded_ref = urllib.parse.quote(ref, safe=':;,-')
         return await self._request(f"/links/{encoded_ref}")
 
     # ─────────────────────────────────────────────────────────────

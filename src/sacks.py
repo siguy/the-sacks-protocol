@@ -233,8 +233,8 @@ class SacksRetriever:
 
                     # Normalize the essay key for URL:
                     # - Replace spaces with underscores
-                    # - Encode question marks to avoid URL conflicts
-                    normalized_key = essay_key.replace(" ", "_").replace("?", "%3F")
+                    # - Keep other chars as-is, urllib.parse.quote will handle them
+                    normalized_key = essay_key.replace(" ", "_")
 
                     # Build reference - Sefaria uses underscores not spaces
                     ref = f"Covenant_and_Conversation;_{book};_{book_subtitle},_{parsha},_{normalized_key}"
@@ -300,14 +300,42 @@ class SacksRetriever:
             if version.get("language") == "en":
                 text = version.get("text", "")
                 if isinstance(text, list):
-                    return self._flatten_text(text)
-                return str(text) if text else ""
+                    raw = self._flatten_text(text)
+                else:
+                    raw = str(text) if text else ""
+                return self._convert_html_to_whatsapp(raw)
 
         # Fallback to legacy 'text' field
         text = text_data.get("text", "")
         if isinstance(text, list):
-            return self._flatten_text(text)
-        return str(text) if text else ""
+            raw = self._flatten_text(text)
+        else:
+            raw = str(text) if text else ""
+        return self._convert_html_to_whatsapp(raw)
+
+    def _convert_html_to_whatsapp(self, text: str) -> str:
+        """Convert HTML formatting to WhatsApp markdown."""
+        import re
+
+        if not text:
+            return ""
+
+        # Convert <b>...</b> to *...* (WhatsApp bold)
+        text = re.sub(r'<b>([^<]+)</b>', r'*\1*', text)
+
+        # Convert <i>...</i> to _..._ (WhatsApp italic)
+        text = re.sub(r'<i>([^<]+)</i>', r'_\1_', text)
+
+        # Convert <strong>...</strong> to *...*
+        text = re.sub(r'<strong>([^<]+)</strong>', r'*\1*', text)
+
+        # Convert <em>...</em> to _..._
+        text = re.sub(r'<em>([^<]+)</em>', r'_\1_', text)
+
+        # Remove any remaining HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+
+        return text.strip()
 
     def _flatten_text(self, nested: list, separator: str = "\n\n") -> str:
         """Flatten nested text arrays into a single string."""

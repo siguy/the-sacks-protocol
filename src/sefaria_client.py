@@ -127,21 +127,26 @@ class SefariaClient:
                 ...
             }
         """
-        # Let httpx handle URL encoding - just use the ref directly
         # For path segment, we need to URL encode manually since httpx won't
         import urllib.parse
         encoded_ref = urllib.parse.quote(ref, safe='')
         endpoint = f"/v3/texts/{encoded_ref}"
 
-        # Build params - httpx handles encoding of query params
-        params = {}
+        # Build params list to support duplicate keys
+        params = []
         if not with_commentary:
-            params["commentary"] = "0"
-        if version:
-            params["ven"] = version
+            params.append(("commentary", "0"))
 
-        # Note: Sefaria v3 returns both Hebrew and English by default
-        # No need to specify version params
+        if language:
+            # Request specific language
+            params.append(("version", f"{language}|all"))
+        else:
+            # Request both Hebrew and English explicitly
+            params.append(("version", "he|all"))
+            params.append(("version", "en|all"))
+
+        if version:
+            params.append(("ven", version))
 
         return await self._request(endpoint, params if params else None)
 

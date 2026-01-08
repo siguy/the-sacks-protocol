@@ -52,6 +52,10 @@ class SefariaClient:
         last_error = None
         for attempt in range(self.config.retry_attempts):
             try:
+                # Debug: print the actual URL being requested
+                full_url = f"{self.config.base_url}{endpoint}"
+                print(f"   DEBUG: Requesting {full_url}")
+
                 response = await self._client.get(endpoint, params=params)
                 response.raise_for_status()
                 return response.json()

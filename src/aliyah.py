@@ -100,78 +100,29 @@ class AliyahRetriever:
 
     def _extract_hebrew(self, text_data: dict) -> list[str]:
         """Extract Hebrew text with nikud from Sefaria response."""
-        # v3 API returns versions array
-        versions = text_data.get("versions", [])
-
-        for version in versions:
-            if version.get("language") == "he":
-                text = version.get("text", [])
-                if isinstance(text, list):
-                    return [self._normalize_hebrew(t) for t in self._flatten(text)]
-                return [self._normalize_hebrew(text)]
-
-        # Fallback to 'he' field (older API)
+        # v2 API returns 'he' field directly
         he = text_data.get("he", [])
-        if isinstance(he, list):
-            return [self._normalize_hebrew(t) for t in self._flatten(he)]
-        return [self._normalize_hebrew(he)] if he else []
+        if he:
+            flattened = self._flatten(he) if isinstance(he, list) else [he]
+            result = [self._normalize_hebrew(t) for t in flattened if t]
+            print(f"   DEBUG: Extracted {len(result)} Hebrew texts")
+            return result
+        return []
 
     def _extract_english_from_response(self, text_data: dict) -> tuple[list[str], str]:
         """
-        Extract English translation from a response known to contain English.
+        Extract English translation from Sefaria v2 API response.
 
         Returns (texts, source_name)
         """
-        versions = text_data.get("versions", [])
-
-        # Try preferred translations in order
-        for preferred in self.PREFERRED_TRANSLATIONS:
-            for version in versions:
-                if version.get("language") == "en":
-                    title = version.get("versionTitle", "")
-                    if preferred.lower() in title.lower():
-                        text = version.get("text", [])
-                        if text:
-                            if isinstance(text, list):
-                                flattened = self._flatten(text)
-                                if flattened:
-                                    return flattened, title
-                            elif text:
-                                return [text], title
-
-        # Fallback to any English version in versions array
-        for version in versions:
-            if version.get("language") == "en":
-                text = version.get("text", [])
-                title = version.get("versionTitle", "Unknown")
-                if text:
-                    if isinstance(text, list):
-                        flattened = self._flatten(text)
-                        if flattened:
-                            return flattened, title
-                    elif text:
-                        return [text], title
-
-        # Try 'text' field directly (Sefaria v3 sometimes returns English here)
+        # v2 API returns English in 'text' field
         text = text_data.get("text", [])
         if text:
-            if isinstance(text, list):
-                flattened = self._flatten(text)
-                if flattened:
-                    return flattened, "Sefaria Community Translation"
-            elif text:
-                return [text], "Sefaria Community Translation"
-
-        # Try 'en' field (some API responses use this)
-        en_text = text_data.get("en", [])
-        if en_text:
-            if isinstance(en_text, list):
-                flattened = self._flatten(en_text)
-                if flattened:
-                    return flattened, "Sefaria Default"
-            elif en_text:
-                return [en_text], "Sefaria Default"
-
+            flattened = self._flatten(text) if isinstance(text, list) else [text]
+            result = [t for t in flattened if t]
+            source = text_data.get("versionTitle", "Sefaria Translation")
+            print(f"   DEBUG: Extracted {len(result)} English texts")
+            return result, source
         return [], "No Translation Found"
 
     def _flatten(self, nested: list) -> list[str]:

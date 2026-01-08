@@ -127,10 +127,11 @@ class SefariaClient:
                 ...
             }
         """
-        # Build the endpoint - httpx will handle URL encoding
-        # We only need to manually encode characters that are valid in URLs but
-        # have special meaning for Sefaria's reference parsing
-        encoded_ref = ref.replace(" ", "%20")
+        # URL encode the ref for path segment
+        # Use urllib.parse.quote but keep safe chars that don't need encoding
+        # and that httpx won't double-encode
+        import urllib.parse
+        encoded_ref = urllib.parse.quote(ref, safe=':;,-')
         endpoint = f"/v3/texts/{encoded_ref}"
 
         # Build params list to support duplicate keys

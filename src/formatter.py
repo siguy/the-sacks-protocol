@@ -262,8 +262,26 @@ class OutputFormatter:
 
         This is a simplified extraction - could be enhanced with LLM.
         """
-        # Split into paragraphs
-        paragraphs = [p.strip() for p in essay_text.split("\n\n") if p.strip()]
+        # Split into paragraphs - handle both \n\n and single \n with blank lines
+        raw_paragraphs = essay_text.split("\n")
+        paragraphs = []
+        current_para = []
+
+        for line in raw_paragraphs:
+            line = line.strip()
+            if line:
+                current_para.append(line)
+            elif current_para:
+                paragraphs.append(" ".join(current_para))
+                current_para = []
+
+        if current_para:
+            paragraphs.append(" ".join(current_para))
+
+        # Filter to substantial paragraphs only
+        paragraphs = [p for p in paragraphs if len(p) > 50]
+
+        print(f"   DEBUG: Essay has {len(paragraphs)} substantial paragraphs")
 
         if not paragraphs:
             return {}
@@ -271,33 +289,63 @@ class OutputFormatter:
         sections = {}
 
         # First substantial paragraph as "difficulty" (usually poses the question)
-        for p in paragraphs[:3]:
-            if len(p) > 100:  # Skip very short intros
-                sections["difficulty"] = self._truncate(p, 300)
+        # Look for paragraphs with question marks or problem-indicating words
+        difficulty_keywords = ["why", "how", "what", "?", "problem", "difficulty", "question", "strange", "puzzling"]
+        found_difficulty = False
+
+        for p in paragraphs[:4]:
+            p_lower = p.lower()
+            if any(kw in p_lower for kw in difficulty_keywords):
+                sections["difficulty"] = self._truncate(p, 350)
+                found_difficulty = True
+                print(f"   DEBUG: Found difficulty with keyword")
                 break
 
-        # Middle section as "insight" (look for paragraphs with key Sacks words)
+        if not found_difficulty and paragraphs:
+            # Fall back to first substantial paragraph
+            sections["difficulty"] = self._truncate(paragraphs[0], 350)
+            print(f"   DEBUG: Using first paragraph as difficulty")
+
+        # Middle section as "insight" (look for paragraphs with key Sacks synthesis words)
         insight_keywords = [
             "therefore", "thus", "this teaches", "the answer", "in other words",
-            "what we learn", "the truth is", "this is why", "the key",
+            "what we learn", "the truth is", "this is why", "the key", "the point",
+            "here we see", "the lesson", "this means", "we learn", "the message",
         ]
 
-        for p in paragraphs[2:-2]:  # Skip first and last few
+        # Look through middle paragraphs for insight
+        middle_start = max(2, len(paragraphs) // 4)
+        middle_end = min(len(paragraphs) - 2, 3 * len(paragraphs) // 4)
+
+        for p in paragraphs[middle_start:middle_end]:
             p_lower = p.lower()
             if any(kw in p_lower for kw in insight_keywords):
-                sections["insight"] = self._truncate(p, 400)
+                sections["insight"] = self._truncate(p, 450)
+                print(f"   DEBUG: Found insight with keyword")
                 break
 
         # If no insight found, use a middle paragraph
-        if "insight" not in sections and len(paragraphs) > 3:
+        if "insight" not in sections and len(paragraphs) > 4:
             mid_idx = len(paragraphs) // 2
-            sections["insight"] = self._truncate(paragraphs[mid_idx], 400)
+            sections["insight"] = self._truncate(paragraphs[mid_idx], 450)
+            print(f"   DEBUG: Using middle paragraph as insight")
 
         # Last substantial paragraph as "call" (usually practical application)
-        for p in reversed(paragraphs[-3:]):
-            if len(p) > 80:
-                sections["call"] = self._truncate(p, 250)
+        # Look for action-oriented or concluding language
+        call_keywords = ["we must", "we should", "let us", "our task", "the challenge",
+                         "in our time", "today", "for us", "we are called"]
+
+        for p in reversed(paragraphs[-4:]):
+            p_lower = p.lower()
+            if any(kw in p_lower for kw in call_keywords):
+                sections["call"] = self._truncate(p, 300)
+                print(f"   DEBUG: Found call with keyword")
                 break
+
+        # Fall back to last paragraph if no call found
+        if "call" not in sections and len(paragraphs) >= 2:
+            sections["call"] = self._truncate(paragraphs[-1], 300)
+            print(f"   DEBUG: Using last paragraph as call")
 
         return sections
 

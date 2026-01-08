@@ -195,16 +195,44 @@ class AliyahRetriever:
         """Build list of Verse objects from text arrays."""
         verses = []
 
-        # Parse ref to get book and starting chapter:verse
+        # Parse ref to get book and starting/ending chapter:verse
         # Format: "Genesis 32:4-32:13" or "Genesis 32:4-13"
         try:
             book, verse_range = ref.rsplit(" ", 1)
-            start_ref = verse_range.split("-")[0]
+            parts = verse_range.split("-")
+            start_ref = parts[0]
             start_chapter, start_verse = map(int, start_ref.split(":"))
+
+            # Parse end verse
+            if len(parts) > 1:
+                end_ref = parts[1]
+                if ":" in end_ref:
+                    # Format: "32:4-32:13"
+                    end_chapter, end_verse = map(int, end_ref.split(":"))
+                else:
+                    # Format: "32:4-13" (same chapter)
+                    end_chapter = start_chapter
+                    end_verse = int(end_ref)
+
+                # Calculate expected verse count (assumes same chapter for now)
+                if end_chapter == start_chapter:
+                    expected_count = end_verse - start_verse + 1
+                else:
+                    # Multi-chapter: use API response length as-is
+                    expected_count = len(hebrew_texts)
+            else:
+                expected_count = len(hebrew_texts)
+
+            print(f"   DEBUG: Expected {expected_count} verses for {ref}")
         except (ValueError, IndexError):
             # Fallback if parsing fails
             book = ref.split()[0] if " " in ref else "Unknown"
             start_chapter, start_verse = 1, 1
+            expected_count = len(hebrew_texts)
+
+        # Slice arrays to expected count
+        hebrew_texts = hebrew_texts[:expected_count]
+        english_texts = english_texts[:expected_count]
 
         # Build verses
         current_chapter = start_chapter

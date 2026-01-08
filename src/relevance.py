@@ -369,7 +369,11 @@ Rate the relevance of this essay to this aliyah."""
         """
         Select essay using heuristic keyword matching when no relevance data available.
         """
+        print(f"   DEBUG: Heuristic essay selection")
+        print(f"   DEBUG: Keywords from aliyah: {aliyah_keywords}")
+
         if not aliyah_keywords or not essays:
+            print(f"   DEBUG: No keywords or essays, returning first essay")
             return essays[0] if essays else None
 
         # Score each essay by keyword matches in title and first 500 chars of text
@@ -380,18 +384,28 @@ Rate the relevance of this essay to this aliyah."""
             score = 0
             title_lower = essay.title.lower()
             text_start = essay.text[:500].lower()
+            matches = []
 
             for kw in keywords_lower:
                 # Title matches weighted more heavily
                 if kw in title_lower:
                     score += 3
+                    matches.append(f"title:{kw}")
                 if kw in text_start:
                     score += 1
+                    matches.append(f"text:{kw}")
 
-            scored.append((score, essay))
+            scored.append((score, essay, matches))
 
         # Sort by score descending
         scored.sort(key=lambda x: x[0], reverse=True)
+
+        # Debug output: top 3 essays with scores
+        print(f"   DEBUG: Essay scores (top 3):")
+        for i, (score, essay, matches) in enumerate(scored[:3]):
+            print(f"      {i+1}. \"{essay.title}\" - score: {score}")
+            if matches:
+                print(f"         Matches: {', '.join(matches[:5])}")
 
         # Return highest scoring essay (or first if no matches)
         return scored[0][1]

@@ -61,12 +61,14 @@ class AliyahRetriever:
         # Construct the full reference
         ref = self._build_ref(aliyah)
 
-        # Fetch text from Sefaria
-        text_data = await self.client.get_text(ref)
+        # Fetch Hebrew and English separately for reliability
+        # Sefaria v3 API works better with separate language requests
+        hebrew_data = await self.client.get_text(ref, language="he")
+        english_data = await self.client.get_text(ref, language="en")
 
-        # Extract Hebrew and English
-        hebrew_texts = self._extract_hebrew(text_data)
-        english_texts, translation_source = await self._extract_english(text_data, ref)
+        # Extract Hebrew and English from separate responses
+        hebrew_texts = self._extract_hebrew(hebrew_data)
+        english_texts, translation_source = self._extract_english_from_response(english_data)
 
         # Build verse list
         verses = self._build_verses(ref, hebrew_texts, english_texts)
@@ -116,9 +118,9 @@ class AliyahRetriever:
             return [self._normalize_hebrew(t) for t in self._flatten(he)]
         return [self._normalize_hebrew(he)] if he else []
 
-    async def _extract_english(self, text_data: dict, ref: str) -> tuple[list[str], str]:
+    def _extract_english_from_response(self, text_data: dict) -> tuple[list[str], str]:
         """
-        Extract English translation, preferring Koren.
+        Extract English translation from a response known to contain English.
 
         Returns (texts, source_name)
         """
@@ -152,25 +154,7 @@ class AliyahRetriever:
                     elif text:
                         return [text], title
 
-        # If no English in response, try fetching with explicit English request
-        try:
-            en_data = await self.client.get_text(ref, language="en")
-            en_versions = en_data.get("versions", [])
-            for version in en_versions:
-                if version.get("language") == "en":
-                    text = version.get("text", [])
-                    title = version.get("versionTitle", "Sefaria Translation")
-                    if text:
-                        if isinstance(text, list):
-                            flattened = self._flatten(text)
-                            if flattened:
-                                return flattened, title
-                        elif text:
-                            return [text], title
-        except Exception:
-            pass
-
-        # Final fallback to 'text' field (older API)
+        # Final fallback to 'text' field (legacy API structure)
         text = text_data.get("text", [])
         if isinstance(text, list):
             flattened = self._flatten(text)

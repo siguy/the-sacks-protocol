@@ -140,9 +140,9 @@ class OutputFormatter:
             "",
         ]
 
-        # Use key verses, but sort them in sequential order (by verse reference)
+        # Show all verses in sequential order
         verses_to_show = sorted(
-            aliyah_text.key_verses[: self.max_verses],
+            aliyah_text.verses,
             key=lambda v: self._verse_sort_key(v.ref)
         )
 

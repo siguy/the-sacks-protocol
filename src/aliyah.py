@@ -61,14 +61,12 @@ class AliyahRetriever:
         # Construct the full reference
         ref = self._build_ref(aliyah)
 
-        # Fetch Hebrew and English in parallel for speed
-        hebrew_task = self.client.get_text(ref, language="he")
-        english_task = self.client.get_text(ref, language="en")
-        hebrew_data, english_data = await asyncio.gather(hebrew_task, english_task)
+        # Fetch text (v3 API returns both Hebrew and English)
+        text_data = await self.client.get_text(ref)
 
-        # Extract Hebrew and English from separate responses
-        hebrew_texts = self._extract_hebrew(hebrew_data)
-        english_texts, translation_source = self._extract_english_from_response(english_data)
+        # Extract Hebrew and English from response
+        hebrew_texts = self._extract_hebrew(text_data)
+        english_texts, translation_source = self._extract_english_from_response(text_data)
 
         # Build verse list
         verses = self._build_verses(ref, hebrew_texts, english_texts)

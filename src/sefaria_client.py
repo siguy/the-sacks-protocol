@@ -63,12 +63,22 @@ class SefariaClient:
                 if '/texts/' in endpoint:
                     print(f"   DEBUG: Response keys: {list(data.keys())[:8]}")
                     if 'versions' in data:
+                        print(f"   DEBUG: versions count: {len(data['versions'])}")
                         for v in data['versions'][:2]:
                             lang = v.get('language', '?')
                             title = v.get('versionTitle', '?')[:30]
                             text = v.get('text', [])
                             tlen = len(text) if isinstance(text, list) else 1
                             print(f"   DEBUG: Version: {lang} - {title} ({tlen} items)")
+                    # Also check direct he/text fields
+                    if 'he' in data:
+                        he = data['he']
+                        hlen = len(he) if isinstance(he, list) else 1
+                        print(f"   DEBUG: 'he' field: {hlen} items")
+                    if 'text' in data:
+                        txt = data['text']
+                        tlen = len(txt) if isinstance(txt, list) else 1
+                        print(f"   DEBUG: 'text' field: {tlen} items")
                     if 'error' in data:
                         print(f"   DEBUG: Error: {data['error']}")
                 return data
@@ -151,21 +161,10 @@ class SefariaClient:
         encoded_ref = urllib.parse.quote(ref, safe=':;,-')
         endpoint = f"/v3/texts/{encoded_ref}"
 
-        # Build params list to support duplicate keys
+        # Build params - don't specify version to get default text
         params = []
         if not with_commentary:
             params.append(("commentary", "0"))
-
-        if language:
-            # Request specific language
-            params.append(("version", f"{language}|all"))
-        else:
-            # Request both Hebrew and English explicitly
-            params.append(("version", "he|all"))
-            params.append(("version", "en|all"))
-
-        if version:
-            params.append(("ven", version))
 
         return await self._request(endpoint, params if params else None)
 

@@ -282,6 +282,11 @@ class OutputFormatter:
         paragraphs = [p for p in paragraphs if len(p) > 50]
 
         print(f"   DEBUG: Essay has {len(paragraphs)} substantial paragraphs")
+        print(f"   DEBUG: Essay text length: {len(essay_text)}")
+        if paragraphs:
+            print(f"   DEBUG: Paragraph 1 preview: {paragraphs[0][:150]}...")
+            if len(paragraphs) > 1:
+                print(f"   DEBUG: Paragraph 2 preview: {paragraphs[1][:150]}...")
 
         if not paragraphs:
             return {}
@@ -289,21 +294,21 @@ class OutputFormatter:
         sections = {}
 
         # First substantial paragraph as "difficulty" (usually poses the question)
-        # Look for paragraphs with question marks or problem-indicating words
-        difficulty_keywords = ["why", "how", "what", "?", "problem", "difficulty", "question", "strange", "puzzling"]
+        # Look for paragraphs that pose substantive questions
         found_difficulty = False
 
-        for p in paragraphs[:4]:
+        for i, p in enumerate(paragraphs[:6]):
             p_lower = p.lower()
-            if any(kw in p_lower for kw in difficulty_keywords):
-                sections["difficulty"] = self._truncate(p, 350)
+            # Look for paragraphs with substantive questions (why/how/what + ?)
+            if ('why' in p_lower or 'how' in p_lower or 'what' in p_lower) and '?' in p:
+                sections["difficulty"] = self._truncate(p, 450)
                 found_difficulty = True
-                print(f"   DEBUG: Found difficulty with keyword")
+                print(f"   DEBUG: Found difficulty at paragraph {i+1} with question")
                 break
 
         if not found_difficulty and paragraphs:
             # Fall back to first substantial paragraph
-            sections["difficulty"] = self._truncate(paragraphs[0], 350)
+            sections["difficulty"] = self._truncate(paragraphs[0], 450)
             print(f"   DEBUG: Using first paragraph as difficulty")
 
         # Middle section as "insight" (look for paragraphs with key Sacks synthesis words)
@@ -333,27 +338,41 @@ class OutputFormatter:
         # Last substantial paragraph as "call" (usually practical application)
         # Look for action-oriented or concluding language
         call_keywords = ["we must", "we should", "let us", "our task", "the challenge",
-                         "in our time", "today", "for us", "we are called"]
+                         "in our time", "today", "for us", "we are called", "that is why",
+                         "this is what", "this is how"]
 
-        for p in reversed(paragraphs[-4:]):
+        found_call = False
+        for i, p in enumerate(reversed(paragraphs[-5:])):
             p_lower = p.lower()
             if any(kw in p_lower for kw in call_keywords):
-                sections["call"] = self._truncate(p, 300)
-                print(f"   DEBUG: Found call with keyword")
+                sections["call"] = self._truncate(p, 400)
+                found_call = True
+                print(f"   DEBUG: Found call at paragraph {len(paragraphs)-i} with keyword")
                 break
 
         # Fall back to last paragraph if no call found
-        if "call" not in sections and len(paragraphs) >= 2:
-            sections["call"] = self._truncate(paragraphs[-1], 300)
+        if not found_call and len(paragraphs) >= 2:
+            sections["call"] = self._truncate(paragraphs[-1], 400)
             print(f"   DEBUG: Using last paragraph as call")
 
         return sections
 
     def _truncate(self, text: str, max_chars: int) -> str:
-        """Truncate text at word boundary."""
+        """Truncate text at sentence boundary to avoid incomplete thoughts."""
         if len(text) <= max_chars:
             return text
-        truncated = text[:max_chars].rsplit(" ", 1)[0]
+
+        # Try to find the last complete sentence within max_chars
+        truncated = text[:max_chars]
+
+        # Find last sentence-ending punctuation (. ! ?)
+        last_period = max(truncated.rfind('. '), truncated.rfind('! '), truncated.rfind('? '))
+
+        if last_period > max_chars * 0.5:  # Only use if we found one reasonably close
+            return truncated[:last_period + 1].strip()
+
+        # Otherwise truncate at word boundary
+        truncated = truncated.rsplit(" ", 1)[0]
         return truncated + "..."
 
     def _get_day_name(self, day: DayOfWeek) -> str:

@@ -61,15 +61,16 @@ class AliyahRetriever:
         # Construct the full reference
         ref = self._build_ref(aliyah)
 
-        # Fetch text (v3 API returns both Hebrew and English)
-        text_data = await self.client.get_text(ref)
+        # Fetch text with Koren translation
+        # Use "The Koren Jerusalem Bible" for English
+        text_data = await self.client.get_text(ref, version="The Koren Jerusalem Bible")
 
         # Extract Hebrew and English from response
         hebrew_texts = self._extract_hebrew(text_data)
         english_texts, translation_source = self._extract_english_from_response(text_data)
 
         # Build verse list
-        verses = self._build_verses(ref, hebrew_texts, english_texts)
+        verses = self._build_verses(ref, hebrew_texts, english_texts, text_data)
 
         # Identify key verses by link count
         key_verses = await self._identify_key_verses(verses)
@@ -190,9 +191,9 @@ class AliyahRetriever:
         return "".join(result)
 
     def _build_verses(
-        self, ref: str, hebrew_texts: list[str], english_texts: list[str]
+        self, ref: str, hebrew_texts: list[str], english_texts: list[str], text_data: dict
     ) -> list[Verse]:
-        """Build list of Verse objects from text arrays."""
+        """Build list of Verse objects from text arrays with proper chapter/verse numbering."""
         verses = []
 
         # Parse ref to get book and starting/ending chapter:verse
@@ -214,29 +215,56 @@ class AliyahRetriever:
                     end_chapter = start_chapter
                     end_verse = int(end_ref)
 
-                # Calculate expected verse count (assumes same chapter for now)
+                # Calculate expected verse count
                 if end_chapter == start_chapter:
                     expected_count = end_verse - start_verse + 1
                 else:
-                    # Multi-chapter: use API response length as-is
-                    expected_count = len(hebrew_texts)
+                    # Multi-chapter: we'll calculate after getting spanningRefs
+                    expected_count = None
             else:
                 expected_count = len(hebrew_texts)
-
-            print(f"   DEBUG: Expected {expected_count} verses for {ref}")
         except (ValueError, IndexError):
             # Fallback if parsing fails
             book = ref.split()[0] if " " in ref else "Unknown"
             start_chapter, start_verse = 1, 1
+            end_chapter, end_verse = start_chapter, len(hebrew_texts)
             expected_count = len(hebrew_texts)
+
+        # Build verses with proper chapter numbering
+        current_chapter = start_chapter
+        current_verse = start_verse
+
+        # For multi-chapter refs, we need to know when to increment the chapter
+        # Use sections/toSections from API response if available
+        verses_per_chapter = {}
+        if text_data.get('isSpanning') and text_data.get('spanningRefs'):
+            # Parse spanning refs to understand chapter boundaries
+            total_verses = 0
+            for span_ref in text_data.get('spanningRefs', []):
+                # Parse "Exodus 3:20-22" or "Exodus 4:1-5"
+                _, span_range = span_ref.rsplit(" ", 1)
+                span_parts = span_range.split("-")
+                span_ch, span_start = map(int, span_parts[0].split(":"))
+                if len(span_parts) > 1:
+                    if ":" in span_parts[1]:
+                        _, span_end = map(int, span_parts[1].split(":"))
+                    else:
+                        span_end = int(span_parts[1])
+                else:
+                    span_end = span_start
+                verses_per_chapter[span_ch] = (span_start, span_end)
+                # Count verses in this chapter segment
+                total_verses += span_end - span_start + 1
+
+            # Use this as expected count if we didn't have one
+            if expected_count is None:
+                expected_count = total_verses
+
+        print(f"   DEBUG: Expected {expected_count} verses for {ref}")
 
         # Slice arrays to expected count
         hebrew_texts = hebrew_texts[:expected_count]
         english_texts = english_texts[:expected_count]
-
-        # Build verses
-        current_chapter = start_chapter
-        current_verse = start_verse
 
         for i, hebrew in enumerate(hebrew_texts):
             english = english_texts[i] if i < len(english_texts) else ""
@@ -252,7 +280,26 @@ class AliyahRetriever:
                 )
             )
 
-            current_verse += 1
+            # Check if we need to move to next chapter
+            if verses_per_chapter:
+                # We're in a spanning ref - check if we've reached the end of current chapter
+                if current_chapter in verses_per_chapter:
+                    _, end_v = verses_per_chapter[current_chapter]
+                    if current_verse >= end_v:
+                        # Move to next chapter
+                        current_chapter += 1
+                        # Find starting verse of next chapter
+                        if current_chapter in verses_per_chapter:
+                            current_verse, _ = verses_per_chapter[current_chapter]
+                        else:
+                            current_verse = 1
+                    else:
+                        current_verse += 1
+                else:
+                    current_verse += 1
+            else:
+                # Single chapter - just increment verse
+                current_verse += 1
 
         return verses
 

@@ -242,11 +242,17 @@ class CommentarySelector:
                     raw = " ".join(str(t) for t in self._flatten(text) if t)
                 else:
                     raw = str(text) if text else ""
-                return self._convert_html_to_whatsapp(raw)
+                if raw:
+                    return self._convert_html_to_whatsapp(raw)
 
         # Fallback to legacy fields
         if language == "he":
             text = text_data.get("he", "")
+        elif language == "en":
+            # For English, try 'text' field first (common in v3 API)
+            text = text_data.get("text", "")
+            if not text:
+                text = text_data.get("en", "")
         else:
             text = text_data.get("text", "")
 

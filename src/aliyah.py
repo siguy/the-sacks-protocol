@@ -141,7 +141,7 @@ class AliyahRetriever:
                             elif text:
                                 return [text], title
 
-        # Fallback to any English version
+        # Fallback to any English version in versions array
         for version in versions:
             if version.get("language") == "en":
                 text = version.get("text", [])
@@ -154,13 +154,27 @@ class AliyahRetriever:
                     elif text:
                         return [text], title
 
-        # Final fallback to 'text' field (legacy API structure)
+        # Try 'text' field directly (Sefaria v3 sometimes returns English here)
         text = text_data.get("text", [])
-        if isinstance(text, list):
-            flattened = self._flatten(text)
-            if flattened:
-                return flattened, "Sefaria Default"
-        return [text] if text else [], "Sefaria Default"
+        if text:
+            if isinstance(text, list):
+                flattened = self._flatten(text)
+                if flattened:
+                    return flattened, "Sefaria Community Translation"
+            elif text:
+                return [text], "Sefaria Community Translation"
+
+        # Try 'en' field (some API responses use this)
+        en_text = text_data.get("en", [])
+        if en_text:
+            if isinstance(en_text, list):
+                flattened = self._flatten(en_text)
+                if flattened:
+                    return flattened, "Sefaria Default"
+            elif en_text:
+                return [en_text], "Sefaria Default"
+
+        return [], "No Translation Found"
 
     def _flatten(self, nested: list) -> list[str]:
         """Flatten nested lists from Sefaria response."""

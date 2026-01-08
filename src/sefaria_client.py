@@ -157,7 +157,7 @@ class SefariaClient:
         # For specific version: use 'ven' (version title) and 'vhe' (Hebrew version) parameters
         if version:
             params["ven"] = version  # English version title
-            params["vhe"] = "Tanach with Text Only"  # Use default Hebrew with nikud
+            # Don't specify vhe - let Sefaria return default Hebrew with nikud
 
         return await self._request(endpoint, params if params else None)
 

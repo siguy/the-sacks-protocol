@@ -7,6 +7,10 @@ Uses WhatsApp-compatible markdown (bold, italic, monospace).
 
 from dataclasses import dataclass
 from datetime import date
+import os
+import re
+
+from anthropic import AsyncAnthropic
 
 from .calendar import TodayInfo, DayOfWeek, JewishCalendar
 from .aliyah import AliyahText, Verse
@@ -46,12 +50,17 @@ class OutputFormatter:
         max_verses: int = 4,
         max_commentary_chars: int = 500,
         max_sacks_chars: int = 800,
+        anthropic_api_key: str | None = None,
     ):
         self.max_verses = max_verses
         self.max_commentary_chars = max_commentary_chars
         self.max_sacks_chars = max_sacks_chars
 
-    def format_daily_output(
+        # Initialize Anthropic client for summarization
+        api_key = anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.anthropic_client = AsyncAnthropic(api_key=api_key) if api_key else None
+
+    async def format_daily_output(
         self,
         today_info: TodayInfo,
         aliyah_text: AliyahText,
@@ -74,12 +83,14 @@ class OutputFormatter:
         # 1. Header
         sections.append(self._format_header(today_info, aliyah_text))
 
-        # 2. The Text
-        sections.append(self._format_text_section(aliyah_text))
+        # 2. The Text (with AI-generated summaries)
+        text_section = await self._format_text_section(aliyah_text)
+        sections.append(text_section)
 
-        # 3. The Commentator
+        # 3. The Commentator (with verse context and full text)
         if commentary:
-            sections.append(self._format_commentary_section(commentary))
+            commentary_section = self._format_commentary_section(commentary, aliyah_text)
+            sections.append(commentary_section)
 
         # 4. The Sacksian Lens
         if sacks_essay:
@@ -131,8 +142,8 @@ class OutputFormatter:
 
         return header
 
-    def _format_text_section(self, aliyah_text: AliyahText) -> str:
-        """Format the Torah text section with Hebrew and English."""
+    async def _format_text_section(self, aliyah_text: AliyahText) -> str:
+        """Format the Torah text section with summaries for each logical section."""
         lines = [
             self.THIN_DIVIDER,
             "",
@@ -140,19 +151,29 @@ class OutputFormatter:
             "",
         ]
 
-        # Show all verses in sequential order
-        verses_to_show = sorted(
-            aliyah_text.verses,
-            key=lambda v: self._verse_sort_key(v.ref)
-        )
+        # Break aliyah into logical sections and summarize each
+        sections = await self._break_into_sections_and_summarize(aliyah_text)
 
-        for verse in verses_to_show:
-            # Hebrew with nikud
-            lines.append(verse.hebrew)
+        for i, section in enumerate(sections, 1):
+            # Section header
+            lines.append(f"{self.BOLD_START}Section {i}: {section['title']}{self.BOLD_END}")
+            lines.append(f"{self.ITALIC_START}{section['verses']}{self.ITALIC_END}")
             lines.append("")
-            # English translation
-            lines.append(f"{self.ITALIC_START}{verse.english}{self.ITALIC_END}")
-            lines.append(f"— {verse.ref}")
+
+            # Show a sample verse or two from this section with Hebrew in bold
+            sample_verses = self._get_section_sample_verses(section['verses'], aliyah_text)
+            if sample_verses:
+                for verse in sample_verses:
+                    # Hebrew in bold
+                    lines.append(f"{self.BOLD_START}{verse.hebrew}{self.BOLD_END}")
+                    lines.append("")
+                    # English in italics
+                    lines.append(f"{self.ITALIC_START}{verse.english}{self.ITALIC_END}")
+                    lines.append(f"— {verse.ref}")
+                    lines.append("")
+
+            # Summary
+            lines.append(section['summary'])
             lines.append("")
 
         # Attribution
@@ -160,8 +181,80 @@ class OutputFormatter:
 
         return "\n".join(lines)
 
-    def _format_commentary_section(self, commentary: Commentary) -> str:
-        """Format the traditional commentary section."""
+    async def _break_into_sections_and_summarize(self, aliyah_text: AliyahText) -> list[dict]:
+        """
+        Use Claude to break aliyah into logical narrative sections and summarize each.
+
+        Returns:
+            List of dicts with keys: 'title', 'verses', 'summary'
+        """
+        if not self.anthropic_client:
+            # Fallback: return simple single section
+            print("   DEBUG: No Anthropic API key - using fallback single section")
+            return [{
+                'title': 'Complete Aliyah',
+                'verses': aliyah_text.aliyah.ref,
+                'summary': 'Summary generation requires Anthropic API key.'
+            }]
+
+        # Prepare text for Claude
+        verses_text = "\n\n".join([
+            f"{v.ref}:\nHebrew: {v.hebrew}\nEnglish: {v.english}"
+            for v in aliyah_text.verses
+        ])
+
+        prompt = f"""Analyze this Torah portion and break it into 3-5 logical narrative sections based on natural thematic or narrative breaks.
+
+For each section provide:
+1. A brief descriptive title (3-6 words)
+2. The verse range it covers (e.g., "Exodus 3:1-3:6")
+3. A 2-4 line summary that captures the key events or ideas
+
+Torah portion ({aliyah_text.aliyah.ref}):
+
+{verses_text}
+
+Return ONLY a valid JSON array with no other text:
+[{{"title": "...", "verses": "...", "summary": "..."}}]"""
+
+        try:
+            print(f"   DEBUG: Calling Claude to break aliyah into sections...")
+            response = await self.anthropic_client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=2000,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            # Parse JSON response
+            import json
+            response_text = response.content[0].text.strip()
+            print(f"   DEBUG: Claude response length: {len(response_text)} chars")
+
+            # Extract JSON if wrapped in markdown code blocks
+            if response_text.startswith("```"):
+                # Remove markdown code block markers
+                response_text = response_text.split("```")[1]
+                if response_text.startswith("json"):
+                    response_text = response_text[4:].strip()
+
+            sections = json.loads(response_text)
+            print(f"   DEBUG: Generated {len(sections)} sections")
+            for i, sec in enumerate(sections, 1):
+                print(f"      {i}. {sec['title']} ({sec['verses']})")
+
+            return sections
+
+        except Exception as e:
+            print(f"   DEBUG: Error generating sections with Claude: {e}")
+            # Fallback to simple single section
+            return [{
+                'title': 'Complete Aliyah',
+                'verses': aliyah_text.aliyah.ref,
+                'summary': f'Error generating summary: {str(e)}'
+            }]
+
+    def _format_commentary_section(self, commentary: Commentary, aliyah_text: AliyahText) -> str:
+        """Format the traditional commentary section with verse context."""
         lines = [
             self.THIN_DIVIDER,
             "",
@@ -171,28 +264,177 @@ class OutputFormatter:
             "",
         ]
 
-        # Show Hebrew text (primary source with dibor haMatchil)
-        if commentary.hebrew_text:
-            hebrew = commentary.hebrew_text
-            if len(hebrew) > self.max_commentary_chars:
-                hebrew = hebrew[: self.max_commentary_chars].rsplit(" ", 1)[0] + "..."
-            lines.append(hebrew)
+        # Show context verses (1-2 verses before and after the commentary verse)
+        context_verses = self._get_context_verses(commentary.verse.ref, aliyah_text)
+        if context_verses:
+            lines.append(f"{self.BOLD_START}Context:{self.BOLD_END}")
+            for verse in context_verses:
+                lines.append("")
+                # Hebrew in bold
+                lines.append(f"{self.BOLD_START}{verse.hebrew}{self.BOLD_END}")
+                lines.append("")
+                lines.append(f"{self.ITALIC_START}{verse.english}{self.ITALIC_END}")
+                lines.append(f"— {verse.ref}")
             lines.append("")
 
-        # Show English translation if available
+        # Show Hebrew commentary (extract and bold dibur hamatchil, NO truncation)
+        if commentary.hebrew_text:
+            hebrew_with_dibur = self._format_hebrew_with_dibur(commentary.hebrew_text)
+            lines.append(hebrew_with_dibur)
+            lines.append("")
+
+        # Show English translation if available (NO truncation)
         if commentary.english_text:
-            english = commentary.english_text
-            if len(english) > self.max_commentary_chars:
-                english = english[: self.max_commentary_chars].rsplit(" ", 1)[0] + "..."
-            lines.append(f"{self.ITALIC_START}{english}{self.ITALIC_END}")
+            lines.append(f"{self.ITALIC_START}{commentary.english_text}{self.ITALIC_END}")
             lines.append("")
 
         # Selection reason (why this commentary)
-        lines.append(
-            f"Selected: {commentary.selection_reason}"
-        )
+        lines.append(f"Selected: {commentary.selection_reason}")
 
         return "\n".join(lines)
+
+    def _get_section_sample_verses(self, verse_range: str, aliyah_text: AliyahText) -> list[Verse]:
+        """
+        Get 1-2 sample verses from a section to display with the summary.
+
+        Args:
+            verse_range: Range like "Exodus 3:1-3:6"
+            aliyah_text: The full aliyah text with all verses
+
+        Returns:
+            List of 1-2 sample verses from the section
+        """
+        # Parse the verse range to get start and end refs
+        # Format: "Exodus 3:1-3:6" or "Exodus 3:1-4:2"
+        try:
+            if '-' in verse_range:
+                start_ref, end_ref = verse_range.split('-')
+                start_ref = start_ref.strip()
+                # Handle "Exodus 3:1-3:6" vs "Exodus 3:1-4:2"
+                if ':' not in end_ref:
+                    # Format like "Exodus 3:1-6" - same chapter
+                    book_chapter = start_ref.rsplit(':', 1)[0]
+                    end_ref = f"{book_chapter}:{end_ref.strip()}"
+                else:
+                    # Format like "3:1-4:2" - need to add book name
+                    if ' ' not in end_ref:
+                        book = start_ref.split()[0]
+                        end_ref = f"{book} {end_ref.strip()}"
+                    else:
+                        end_ref = end_ref.strip()
+            else:
+                # Single verse
+                start_ref = verse_range.strip()
+                end_ref = start_ref
+
+            # Find verses in this range
+            section_verses = []
+            in_range = False
+            for verse in aliyah_text.verses:
+                if verse.ref == start_ref:
+                    in_range = True
+                if in_range:
+                    section_verses.append(verse)
+                if verse.ref == end_ref:
+                    break
+
+            # Return first 1-2 verses from the section as samples
+            if len(section_verses) <= 2:
+                return section_verses
+            else:
+                # Return first verse only for longer sections
+                return section_verses[:1]
+
+        except Exception as e:
+            print(f"   DEBUG: Error parsing verse range '{verse_range}': {e}")
+            return []
+
+    def _get_context_verses(self, commentary_ref: str, aliyah_text: AliyahText) -> list[Verse]:
+        """
+        Get 1-2 verses before and after the commentary verse for context.
+
+        Args:
+            commentary_ref: Reference like "Exodus 4:14"
+            aliyah_text: The full aliyah text with all verses
+
+        Returns:
+            List of verses (including the commentary verse itself)
+        """
+        # Find the commentary verse in the aliyah
+        commentary_idx = None
+        for i, verse in enumerate(aliyah_text.verses):
+            if verse.ref == commentary_ref:
+                commentary_idx = i
+                break
+
+        if commentary_idx is None:
+            # Commentary verse not in aliyah - just return the verse itself if available
+            print(f"   DEBUG: Commentary verse {commentary_ref} not found in aliyah")
+            return []
+
+        # Get context: up to 2 verses before, the verse itself, and up to 2 verses after
+        start_idx = max(0, commentary_idx - 2)
+        end_idx = min(len(aliyah_text.verses), commentary_idx + 3)
+
+        context = aliyah_text.verses[start_idx:end_idx]
+        print(f"   DEBUG: Context verses for {commentary_ref}: {[v.ref for v in context]}")
+        return context
+
+    def _format_hebrew_with_dibur(self, hebrew_text: str) -> str:
+        """
+        Extract dibur hamatchil (opening phrase) from Hebrew commentary and make it bold.
+
+        The dibur hamatchil is typically:
+        - At the start of the commentary
+        - Often marked with a period or other delimiter
+        - Usually quotes from the verse being commented on
+
+        Args:
+            hebrew_text: Full Hebrew commentary text
+
+        Returns:
+            Hebrew text with dibur hamatchil wrapped in bold markers
+        """
+        # Common patterns for dibur hamatchil:
+        # 1. Text before first period (.)
+        # 2. Text in bold markers already (* or **)
+        # 3. First phrase ending with specific punctuation
+
+        # Check if already has bold markers
+        if hebrew_text.startswith("*") or "**" in hebrew_text[:30]:
+            # Already formatted, return as-is
+            return hebrew_text
+
+        # Try to extract first phrase (up to first period, colon, or similar)
+        # Look for common delimiters that end the dibur hamatchil
+        delimiters = [". ", "׃ ", ": ", "׳ ", "״ "]
+
+        dibur_end = -1
+        for delim in delimiters:
+            pos = hebrew_text.find(delim)
+            if pos > 0 and pos < 100:  # Reasonable length for dibur hamatchil
+                dibur_end = pos + len(delim) - 1  # Include delimiter character
+                break
+
+        if dibur_end > 0:
+            dibur = hebrew_text[:dibur_end].strip()
+            rest = hebrew_text[dibur_end:].strip()
+            formatted = f"{self.BOLD_START}{dibur}{self.BOLD_END} {rest}"
+            print(f"   DEBUG: Extracted dibur hamatchil: '{dibur[:50]}...'")
+            return formatted
+
+        # If no clear dibur hamatchil found, just bold the first few words
+        words = hebrew_text.split()
+        if len(words) >= 3:
+            dibur = " ".join(words[:3])
+            rest = " ".join(words[3:])
+            formatted = f"{self.BOLD_START}{dibur}{self.BOLD_END} {rest}"
+            print(f"   DEBUG: Using first 3 words as dibur hamatchil")
+            return formatted
+
+        # Fallback: return text as-is
+        print(f"   DEBUG: Could not extract dibur hamatchil, returning text as-is")
+        return hebrew_text
 
     def _format_sacks_section(
         self,

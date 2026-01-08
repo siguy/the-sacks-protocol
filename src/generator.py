@@ -10,8 +10,10 @@ Ties together all components to generate daily output:
 """
 
 import asyncio
+import os
 from datetime import date
 from pathlib import Path
+from dotenv import load_dotenv
 
 from .sefaria_client import SefariaClient
 from .calendar import JewishCalendar, TodayInfo
@@ -128,7 +130,7 @@ class DailyGenerator:
 
             # 6. Format output
             print("\n✨ Formatting output...")
-            output = formatter.format_daily_output(
+            output = await formatter.format_daily_output(
                 today_info=today_info,
                 aliyah_text=primary_aliyah_text,
                 commentary=commentary,
@@ -224,6 +226,9 @@ class DailyGenerator:
 
 async def main():
     """Generate today's output."""
+    # Load environment variables from .env file (override existing env vars)
+    load_dotenv(override=True)
+
     generator = DailyGenerator()
 
     print("=" * 50)

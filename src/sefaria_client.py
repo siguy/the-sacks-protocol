@@ -145,7 +145,7 @@ class SefariaClient:
         import urllib.parse
         encoded_ref = urllib.parse.quote(ref, safe=':;,-')
 
-        # Use v2 API - returns both 'he' and 'text' (English) by default
+        # Use standard /texts/ endpoint - returns both 'he' and 'text' (English) by default
         endpoint = f"/texts/{encoded_ref}"
 
         # Build params

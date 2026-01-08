@@ -58,7 +58,20 @@ class SefariaClient:
 
                 response = await self._client.get(endpoint, params=params)
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                # Debug: show response info for text requests
+                if '/texts/' in endpoint:
+                    print(f"   DEBUG: Response keys: {list(data.keys())[:8]}")
+                    if 'versions' in data:
+                        for v in data['versions'][:2]:
+                            lang = v.get('language', '?')
+                            title = v.get('versionTitle', '?')[:30]
+                            text = v.get('text', [])
+                            tlen = len(text) if isinstance(text, list) else 1
+                            print(f"   DEBUG: Version: {lang} - {title} ({tlen} items)")
+                    if 'error' in data:
+                        print(f"   DEBUG: Error: {data['error']}")
+                return data
             except httpx.HTTPError as e:
                 last_error = e
                 if attempt < self.config.retry_attempts - 1:

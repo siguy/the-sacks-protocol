@@ -114,12 +114,18 @@ Rate the relevance of this essay to this aliyah."""
             contents=test_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=300,
+                max_output_tokens=500,
             )
         )
 
         print(f"✓ Response with system prompt received")
         print(f"  Raw response: {response.text[:200]}...")
+        print(f"  Response text length: {len(response.text)}")
+        # Check for truncation
+        if hasattr(response, 'candidates') and response.candidates:
+            candidate = response.candidates[0]
+            if hasattr(candidate, 'finish_reason'):
+                print(f"  Finish reason: {candidate.finish_reason}")
         return True, response.text
 
     except Exception as e:

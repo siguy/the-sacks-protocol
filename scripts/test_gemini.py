@@ -69,7 +69,7 @@ def test_basic_connection():
         client = genai.Client(api_key=api_key)
 
         response = client.models.generate_content(
-            model='gemini-3-flash-preview',
+            model='gemini-2.5-flash',
             contents="Say 'Hello, Sacks Protocol!' in exactly those words."
         )
         print(f"✓ Response received: {response.text[:50]}...")
@@ -110,7 +110,7 @@ Rate the relevance of this essay to this aliyah."""
 
         # Use system_instruction in config
         response = client.models.generate_content(
-            model='gemini-3-flash-preview',
+            model='gemini-2.5-flash',
             contents=test_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,

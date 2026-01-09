@@ -74,7 +74,7 @@ class RelevanceScorer:
 
     def __init__(
         self,
-        model: str = "gemini-3-flash-preview",
+        model: str = "gemini-2.5-flash",
         data_dir: Path | None = None,
     ):
         self.model = model

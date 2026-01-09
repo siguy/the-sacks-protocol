@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test Gemini API Integration
+Test Gemini API Integration (New google-genai SDK)
 
 Tests:
 1. Basic API connection
@@ -16,12 +16,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-# Import Gemini SDK
+# Import new Gemini SDK
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
 except ImportError:
-    print("ERROR: google-generativeai not installed")
-    print("Run: pip install google-generativeai")
+    print("ERROR: google-genai not installed")
+    print("Run: pip install google-genai")
     exit(1)
 
 
@@ -59,39 +60,33 @@ def test_basic_connection():
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         print("❌ FAILED: GOOGLE_API_KEY not found in environment")
-        return False
+        print("   Create .env file with: GOOGLE_API_KEY=your-key-here")
+        return False, None
 
     print(f"✓ API key found: {api_key[:10]}...")
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        client = genai.Client(api_key=api_key)
 
-        response = model.generate_content("Say 'Hello, Sacks Protocol!' in exactly those words.")
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents="Say 'Hello, Sacks Protocol!' in exactly those words."
+        )
         print(f"✓ Response received: {response.text[:50]}...")
-        return True
+        return True, client
 
     except Exception as e:
         print(f"❌ FAILED: {e}")
-        return False
+        return False, None
 
 
-def test_system_prompt():
+def test_system_prompt(client):
     """Test 2: System prompt handling"""
     print("\n" + "=" * 50)
     print("TEST 2: System Prompt Handling")
     print("=" * 50)
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    genai.configure(api_key=api_key)
-
     try:
-        # Create model with system instruction
-        model = genai.GenerativeModel(
-            'gemini-2.0-flash',
-            system_instruction=SYSTEM_PROMPT
-        )
-
         # Simple test prompt
         test_prompt = """## Aliyah
 **Reference:** Exodus 3:1-3:15 (Aliyah 4)
@@ -113,13 +108,24 @@ This essay discusses the nature of faith during times of suffering and how Moses
 
 Rate the relevance of this essay to this aliyah."""
 
-        response = model.generate_content(test_prompt)
+        # Use system_instruction in config
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=test_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                max_output_tokens=300,
+            )
+        )
+
         print(f"✓ Response with system prompt received")
         print(f"  Raw response: {response.text[:200]}...")
         return True, response.text
 
     except Exception as e:
         print(f"❌ FAILED: {e}")
+        import traceback
+        traceback.print_exc()
         return False, None
 
 
@@ -164,16 +170,17 @@ def test_json_parsing(response_text: str):
 
 def main():
     print("=" * 50)
-    print("GEMINI API INTEGRATION TEST")
+    print("GEMINI API INTEGRATION TEST (google-genai SDK)")
     print("=" * 50)
 
     # Test 1: Basic connection
-    if not test_basic_connection():
+    success, client = test_basic_connection()
+    if not success:
         print("\n⛔ Basic connection failed. Stopping tests.")
         return
 
     # Test 2: System prompt
-    success, response_text = test_system_prompt()
+    success, response_text = test_system_prompt(client)
     if not success:
         print("\n⛔ System prompt test failed. Stopping tests.")
         return

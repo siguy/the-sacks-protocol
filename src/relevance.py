@@ -74,7 +74,7 @@ class RelevanceScorer:
 
     def __init__(
         self,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3-flash-preview",
         data_dir: Path | None = None,
     ):
         self.model = model
@@ -160,7 +160,10 @@ Rate the relevance of this essay to this aliyah."""
             contents=user_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=300,
+                max_output_tokens=1024,
+                thinking_config=types.ThinkingConfig(
+                    thinking_budget=0  # Disable thinking for JSON response
+                ),
             )
         )
 

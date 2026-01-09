@@ -212,9 +212,14 @@ Return ONLY a valid JSON array with no other text:
             response = await loop.run_in_executor(
                 None,
                 lambda: self.gemini_client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-3-flash-preview",
                     contents=prompt,
-                    config=types.GenerateContentConfig(max_output_tokens=2000)
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=4096,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=0  # Disable thinking for JSON response
+                        ),
+                    )
                 )
             )
 

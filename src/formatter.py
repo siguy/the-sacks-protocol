@@ -171,7 +171,7 @@ class OutputFormatter:
 
     async def _break_into_sections_and_summarize(self, aliyah_text: AliyahText) -> list[dict]:
         """
-        Use Claude to break aliyah into logical narrative sections and summarize each.
+        Use Gemini to break aliyah into logical narrative sections and summarize each.
 
         Returns:
             List of dicts with keys: 'title', 'verses', 'summary'
@@ -243,7 +243,7 @@ Return ONLY a valid JSON array with no other text:
             return sections
 
         except Exception as e:
-            print(f"   DEBUG: Error generating sections with Claude: {e}")
+            print(f"   DEBUG: Error generating sections with Gemini: {e}")
             # Fallback to simple single section
             return [{
                 'title': 'Complete Aliyah',

@@ -20,7 +20,7 @@ translation:
 
 # Relevance scoring settings
 relevance:
-  model: "claude-3-haiku-20240307"
+  model: "gemini-3-flash-preview"
   threshold_direct: 5      # Score 5 = direct relevance
   threshold_strong: 4      # Score 4+ = highlight connection
   threshold_moderate: 3    # Score 3 = mention connection

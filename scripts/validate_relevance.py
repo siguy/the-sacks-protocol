@@ -38,8 +38,9 @@ async def main():
         # Get this week's info (use Sunday Jan 4, 2026)
         sunday = date(2026, 1, 4)
         today_info = await calendar.get_today_info(sunday)
-        parsha = today_info.parsha
-        book = today_info.aliyot[0].book if today_info.aliyot else "Exodus"
+        parsha_obj = today_info.parsha
+        parsha = parsha_obj.name_en
+        book = parsha_obj.book
 
         print(f"\n📖 PARSHA: {parsha}")
         print(f"   Book: {book}")
@@ -94,10 +95,7 @@ async def main():
             aliyah = day_info.aliyot[0]
             print(f"   Ref: {aliyah.ref}")
 
-            aliyah_text = await aliyah_retriever.get_aliyah_text(
-                aliyah.ref,
-                aliyah.book
-            )
+            aliyah_text = await aliyah_retriever.get_aliyah_text(aliyah)
 
             print(f"   Verses: {len(aliyah_text.verses)}")
 

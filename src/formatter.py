@@ -155,8 +155,8 @@ class OutputFormatter:
         sections = await self._break_into_sections_and_summarize(aliyah_text)
 
         for i, section in enumerate(sections, 1):
-            # Section header
-            lines.append(f"{self.BOLD_START}Section {i}: {section['title']}{self.BOLD_END}")
+            # Section header with verse range
+            lines.append(f"{self.BOLD_START}Section {i}: {section['title']}{self.BOLD_END} | {section['verses']}")
             lines.append("")
             # Summary only (no verses)
             lines.append(section['summary'])

@@ -136,12 +136,16 @@ def test_json_parsing(response_text: str):
     print("=" * 50)
 
     try:
-        # Clean up response (same logic as relevance.py)
+        # Clean up response - extract JSON from markdown code blocks
         cleaned = response_text.strip()
         if cleaned.startswith("```"):
-            cleaned = cleaned.split("```")[1]
-            if cleaned.startswith("json"):
-                cleaned = cleaned[4:]
+            # Split by ``` and take the content between first and second
+            parts = cleaned.split("```")
+            if len(parts) >= 2:
+                cleaned = parts[1]
+                # Remove language identifier (json, JSON, etc.) with any whitespace
+                if cleaned.lower().startswith("json"):
+                    cleaned = cleaned[4:].lstrip()
         cleaned = cleaned.strip()
 
         print(f"  Cleaned response: {cleaned[:150]}...")

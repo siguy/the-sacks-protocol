@@ -169,12 +169,15 @@ Rate the relevance of this essay to this aliyah."""
     def _parse_response(self, response: str) -> RelevanceScore:
         """Parse Gemini's JSON response into a RelevanceScore."""
         try:
-            # Clean up response (remove any markdown code blocks)
+            # Clean up response - extract JSON from markdown code blocks
             cleaned = response.strip()
             if cleaned.startswith("```"):
-                cleaned = cleaned.split("```")[1]
-                if cleaned.startswith("json"):
-                    cleaned = cleaned[4:]
+                parts = cleaned.split("```")
+                if len(parts) >= 2:
+                    cleaned = parts[1]
+                    # Remove language identifier (json, JSON, etc.) with any whitespace
+                    if cleaned.lower().startswith("json"):
+                        cleaned = cleaned[4:].lstrip()
             cleaned = cleaned.strip()
 
             data = json.loads(cleaned)

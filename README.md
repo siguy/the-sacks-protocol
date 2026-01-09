@@ -55,7 +55,7 @@ pip install -e ".[dev]"
 
 # Configure
 cp .env.example .env
-# Edit .env with your Anthropic API key
+# Edit .env with your Google Gemini API key
 
 # Generate today's output
 python -m src.generator

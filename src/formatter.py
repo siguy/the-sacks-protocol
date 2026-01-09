@@ -10,7 +10,12 @@ from datetime import date
 import os
 import re
 
-from anthropic import AsyncAnthropic
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None
+    types = None
 
 from .calendar import TodayInfo, DayOfWeek, JewishCalendar
 from .aliyah import AliyahText, Verse
@@ -50,15 +55,15 @@ class OutputFormatter:
         max_verses: int = 4,
         max_commentary_chars: int = 500,
         max_sacks_chars: int = 800,
-        anthropic_api_key: str | None = None,
+        google_api_key: str | None = None,
     ):
         self.max_verses = max_verses
         self.max_commentary_chars = max_commentary_chars
         self.max_sacks_chars = max_sacks_chars
 
-        # Initialize Anthropic client for summarization
-        api_key = anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-        self.anthropic_client = AsyncAnthropic(api_key=api_key) if api_key else None
+        # Initialize Gemini client for summarization
+        api_key = google_api_key or os.getenv("GOOGLE_API_KEY")
+        self.gemini_client = genai.Client(api_key=api_key) if (api_key and genai) else None
 
     async def format_daily_output(
         self,
@@ -171,16 +176,16 @@ class OutputFormatter:
         Returns:
             List of dicts with keys: 'title', 'verses', 'summary'
         """
-        if not self.anthropic_client:
+        if not self.gemini_client:
             # Fallback: return simple single section
-            print("   DEBUG: No Anthropic API key - using fallback single section")
+            print("   DEBUG: No Gemini API key - using fallback single section")
             return [{
                 'title': 'Complete Aliyah',
                 'verses': aliyah_text.aliyah.ref,
-                'summary': 'Summary generation requires Anthropic API key.'
+                'summary': 'Summary generation requires Gemini API key.'
             }]
 
-        # Prepare text for Claude
+        # Prepare text for Gemini
         verses_text = "\n\n".join([
             f"{v.ref}:\nHebrew: {v.hebrew}\nEnglish: {v.english}"
             for v in aliyah_text.verses
@@ -201,17 +206,22 @@ Return ONLY a valid JSON array with no other text:
 [{{"title": "...", "verses": "...", "summary": "..."}}]"""
 
         try:
-            print(f"   DEBUG: Calling Claude to break aliyah into sections...")
-            response = await self.anthropic_client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=2000,
-                messages=[{"role": "user", "content": prompt}]
+            print(f"   DEBUG: Calling Gemini to break aliyah into sections...")
+            import asyncio
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.gemini_client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(max_output_tokens=2000)
+                )
             )
 
             # Parse JSON response
             import json
-            response_text = response.content[0].text.strip()
-            print(f"   DEBUG: Claude response length: {len(response_text)} chars")
+            response_text = response.text.strip()
+            print(f"   DEBUG: Gemini response length: {len(response_text)} chars")
 
             # Extract JSON if wrapped in markdown code blocks
             if response_text.startswith("```"):

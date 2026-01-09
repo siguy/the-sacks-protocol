@@ -10,8 +10,8 @@ Usage:
     python scripts/compute_relevance.py --all
     python scripts/compute_relevance.py --next-month
 
-Requires ANTHROPIC_API_KEY environment variable.
-Estimated cost: ~$0.75 for all parshiyot
+Requires GOOGLE_API_KEY environment variable.
+Uses Gemini API for relevance scoring.
 """
 
 import argparse
@@ -196,7 +196,7 @@ async def main():
         return
 
     print(f"Processing {len(parshiyot)} parshiyot")
-    print("This requires ANTHROPIC_API_KEY environment variable")
+    print("This requires GOOGLE_API_KEY environment variable")
     print()
 
     async with SefariaClient() as client:

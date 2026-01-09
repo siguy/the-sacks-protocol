@@ -95,6 +95,21 @@ This project honors that vision by:
 - Adding Rabbi Sacks' unique synthesis of Torah and universal wisdom
 - Respecting the integrity of his essays (no chunking)
 
+## Development Notes
+
+**Before making changes, always read the actual source files first.**
+
+When modifying or extending this codebase:
+1. Check dataclass definitions before accessing attributes (`@dataclass` in `calendar.py`, etc.)
+2. Verify method signatures before calling them (`def method_name` with parameters)
+3. Don't assume API structure - verify it in the source
+
+Key classes and their locations:
+- `Aliyah`, `Parsha`, `TodayInfo` → `src/calendar.py`
+- `AliyahText`, `Verse` → `src/aliyah.py`
+- `SacksEssay`, `SacksCorpus` → `src/sacks.py`
+- `Commentary` → `src/commentary.py`
+
 ## License
 
 MIT

@@ -147,7 +147,7 @@ class OutputFormatter:
         lines = [
             self.THIN_DIVIDER,
             "",
-            f"{self.BOLD_START}THE TEXT{self.BOLD_END} · {aliyah_text.aliyah.ref}",
+            f"{self.BOLD_START}THE ALIYAH SUMMARY{self.BOLD_END} · {aliyah_text.aliyah.ref}",
             "",
         ]
 
@@ -157,27 +157,10 @@ class OutputFormatter:
         for i, section in enumerate(sections, 1):
             # Section header
             lines.append(f"{self.BOLD_START}Section {i}: {section['title']}{self.BOLD_END}")
-            lines.append(f"{self.ITALIC_START}{section['verses']}{self.ITALIC_END}")
             lines.append("")
-
-            # Show a sample verse or two from this section with Hebrew in bold
-            sample_verses = self._get_section_sample_verses(section['verses'], aliyah_text)
-            if sample_verses:
-                for verse in sample_verses:
-                    # Hebrew in bold
-                    lines.append(f"{self.BOLD_START}{verse.hebrew}{self.BOLD_END}")
-                    lines.append("")
-                    # English in italics
-                    lines.append(f"{self.ITALIC_START}{verse.english}{self.ITALIC_END}")
-                    lines.append(f"— {verse.ref}")
-                    lines.append("")
-
-            # Summary
+            # Summary only (no verses)
             lines.append(section['summary'])
             lines.append("")
-
-        # Attribution
-        lines.append(f"Translation: {aliyah_text.translation_source}")
 
         return "\n".join(lines)
 
@@ -258,26 +241,25 @@ Return ONLY a valid JSON array with no other text:
         lines = [
             self.THIN_DIVIDER,
             "",
-            f"{self.BOLD_START}THE COMMENTATOR{self.BOLD_END} · {commentary.commentator.name}",
+            f"{self.BOLD_START}COMMENTATOR DEEP DIVE{self.BOLD_END} · {commentary.commentator.name}",
             f"{commentary.commentator.hebrew} · {commentary.commentator.era}",
             f"On {commentary.verse.ref}",
             "",
         ]
 
-        # Show context verses (1-2 verses before and after the commentary verse)
-        context_verses = self._get_context_verses(commentary.verse.ref, aliyah_text)
-        if context_verses:
-            lines.append(f"{self.BOLD_START}Context:{self.BOLD_END}")
-            for verse in context_verses:
-                lines.append("")
-                # Hebrew in bold
-                lines.append(f"{self.BOLD_START}{verse.hebrew}{self.BOLD_END}")
-                lines.append("")
-                lines.append(f"{self.ITALIC_START}{verse.english}{self.ITALIC_END}")
-                lines.append(f"— {verse.ref}")
-            lines.append("")
+        # Show ONLY the verse being commented on
+        lines.append(f"{self.BOLD_START}Context:{self.BOLD_END}")
+        lines.append("")
+        # Hebrew in bold
+        lines.append(f"{self.BOLD_START}{commentary.verse.hebrew}{self.BOLD_END}")
+        lines.append("")
+        lines.append(f"{self.ITALIC_START}{commentary.verse.english}{self.ITALIC_END}")
+        lines.append(f"— {commentary.verse.ref}")
+        lines.append("")
 
-        # Show Hebrew commentary (extract and bold dibur hamatchil, NO truncation)
+        # Show Hebrew commentary with dibur hamatchil bolded
+        lines.append(f"{self.BOLD_START}Commentary:{self.BOLD_END}")
+        lines.append("")
         if commentary.hebrew_text:
             hebrew_with_dibur = self._format_hebrew_with_dibur(commentary.hebrew_text)
             lines.append(hebrew_with_dibur)
@@ -286,10 +268,6 @@ Return ONLY a valid JSON array with no other text:
         # Show English translation if available (NO truncation)
         if commentary.english_text:
             lines.append(f"{self.ITALIC_START}{commentary.english_text}{self.ITALIC_END}")
-            lines.append("")
-
-        # Selection reason (why this commentary)
-        lines.append(f"Selected: {commentary.selection_reason}")
 
         return "\n".join(lines)
 
@@ -384,57 +362,29 @@ Return ONLY a valid JSON array with no other text:
         """
         Extract dibur hamatchil (opening phrase) from Hebrew commentary and make it bold.
 
-        The dibur hamatchil is typically:
-        - At the start of the commentary
-        - Often marked with a period or other delimiter
-        - Usually quotes from the verse being commented on
+        The dibur hamatchil is the first ~4 words of the Hebrew commentary that
+        typically quotes from the verse being commented on.
 
         Args:
             hebrew_text: Full Hebrew commentary text
 
         Returns:
-            Hebrew text with dibur hamatchil wrapped in bold markers
+            Hebrew text with dibur hamatchil (first ~4 words) wrapped in bold markers
         """
-        # Common patterns for dibur hamatchil:
-        # 1. Text before first period (.)
-        # 2. Text in bold markers already (* or **)
-        # 3. First phrase ending with specific punctuation
-
-        # Check if already has bold markers
-        if hebrew_text.startswith("*") or "**" in hebrew_text[:30]:
-            # Already formatted, return as-is
-            return hebrew_text
-
-        # Try to extract first phrase (up to first period, colon, or similar)
-        # Look for common delimiters that end the dibur hamatchil
-        delimiters = [". ", "׃ ", ": ", "׳ ", "״ "]
-
-        dibur_end = -1
-        for delim in delimiters:
-            pos = hebrew_text.find(delim)
-            if pos > 0 and pos < 100:  # Reasonable length for dibur hamatchil
-                dibur_end = pos + len(delim) - 1  # Include delimiter character
-                break
-
-        if dibur_end > 0:
-            dibur = hebrew_text[:dibur_end].strip()
-            rest = hebrew_text[dibur_end:].strip()
-            formatted = f"{self.BOLD_START}{dibur}{self.BOLD_END} {rest}"
-            print(f"   DEBUG: Extracted dibur hamatchil: '{dibur[:50]}...'")
-            return formatted
-
-        # If no clear dibur hamatchil found, just bold the first few words
+        # Split into words
         words = hebrew_text.split()
-        if len(words) >= 3:
-            dibur = " ".join(words[:3])
-            rest = " ".join(words[3:])
-            formatted = f"{self.BOLD_START}{dibur}{self.BOLD_END} {rest}"
-            print(f"   DEBUG: Using first 3 words as dibur hamatchil")
-            return formatted
 
-        # Fallback: return text as-is
-        print(f"   DEBUG: Could not extract dibur hamatchil, returning text as-is")
-        return hebrew_text
+        if len(words) < 4:
+            # If less than 4 words, bold all of it
+            return f"{self.BOLD_START}{hebrew_text}{self.BOLD_END}"
+
+        # Bold the first 4 words
+        dibur = " ".join(words[:4])
+        rest = " ".join(words[4:])
+        formatted = f"{self.BOLD_START}{dibur}{self.BOLD_END} {rest}"
+
+        print(f"   DEBUG: Dibur hamatchil (first 4 words): '{dibur}'")
+        return formatted
 
     def _format_sacks_section(
         self,

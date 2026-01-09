@@ -104,7 +104,9 @@ class AliyahRetriever:
         # v2 API returns 'he' field directly
         he = text_data.get("he", [])
         if he:
-            flattened = self._flatten(he) if isinstance(he, list) else [he]
+            # Slice arrays based on spanningRefs BEFORE flattening
+            sliced_arrays = self._slice_by_spanning_refs(he, text_data.get("spanningRefs", []))
+            flattened = self._flatten(sliced_arrays) if isinstance(sliced_arrays, list) else [sliced_arrays]
             result = [self._normalize_hebrew(t) for t in flattened if t]
             print(f"   DEBUG: Extracted {len(result)} Hebrew texts")
             return result
@@ -119,13 +121,71 @@ class AliyahRetriever:
         # v2 API returns English in 'text' field
         text = text_data.get("text", [])
         if text:
-            flattened = self._flatten(text) if isinstance(text, list) else [text]
+            # Slice arrays based on spanningRefs BEFORE flattening
+            sliced_arrays = self._slice_by_spanning_refs(text, text_data.get("spanningRefs", []))
+            flattened = self._flatten(sliced_arrays) if isinstance(sliced_arrays, list) else [sliced_arrays]
             # Strip HTML from English text
             result = [self._strip_html(t) for t in flattened if t]
             source = text_data.get("versionTitle", "Sefaria Translation")
             print(f"   DEBUG: Extracted {len(result)} English texts")
             return result, source
         return [], "No Translation Found"
+
+    def _slice_by_spanning_refs(self, arrays: list, spanning_refs: list[str]) -> list:
+        """
+        Slice nested arrays based on spanningRefs to get only requested verses.
+
+        Args:
+            arrays: Nested list like [[ch3_all_verses], [ch4_all_verses]]
+            spanning_refs: List like ['Exodus 3:16-22', 'Exodus 4:1-17']
+
+        Returns:
+            Sliced arrays containing only the requested verses
+        """
+        if not spanning_refs or not isinstance(arrays, list):
+            return arrays
+
+        sliced = []
+        for i, span_ref in enumerate(spanning_refs):
+            if i >= len(arrays):
+                break
+
+            array = arrays[i]
+            if not isinstance(array, list):
+                sliced.append(array)
+                continue
+
+            # Parse the spanning ref to get verse range
+            # Format: "Exodus 3:16-22" or "Exodus 3:16"
+            try:
+                _, verse_range = span_ref.rsplit(" ", 1)
+                parts = verse_range.split("-")
+
+                # Get starting verse
+                start_parts = parts[0].split(":")
+                start_verse = int(start_parts[1]) if len(start_parts) > 1 else 1
+
+                # Get ending verse
+                if len(parts) > 1:
+                    end_parts = parts[1].split(":")
+                    end_verse = int(end_parts[1]) if len(end_parts) > 1 else int(parts[1])
+                else:
+                    end_verse = start_verse
+
+                # Slice the array (verse numbers are 1-indexed, array indices are 0-indexed)
+                # If we want verses 16-22, we need indices 15-21 (inclusive)
+                start_idx = start_verse - 1
+                end_idx = end_verse  # end_verse is inclusive, so we don't subtract 1
+
+                sliced_array = array[start_idx:end_idx]
+                print(f"   DEBUG: Sliced {span_ref}: indices [{start_idx}:{end_idx}] = {len(sliced_array)} verses")
+                sliced.append(sliced_array)
+
+            except (ValueError, IndexError) as e:
+                print(f"   DEBUG: Error slicing {span_ref}: {e}, using full array")
+                sliced.append(array)
+
+        return sliced
 
     def _strip_html(self, text: str) -> str:
         """Strip HTML tags and entities from text."""

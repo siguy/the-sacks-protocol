@@ -1,7 +1,7 @@
 """
 LLM Relevance Scoring Module (Method C)
 
-Uses Claude to score the relevance of Sacks essays to specific aliyot.
+Uses Gemini to score the relevance of Sacks essays to specific aliyot.
 Supports both runtime scoring and pre-computation.
 """
 
@@ -15,9 +15,11 @@ from typing import Any
 import yaml
 
 try:
-    import anthropic
+    from google import genai
+    from google.genai import types
 except ImportError:
-    anthropic = None
+    genai = None
+    types = None
 
 from .sacks import SacksEssay
 from .aliyah import AliyahText
@@ -68,11 +70,11 @@ Respond with only valid JSON. No additional text."""
 
 
 class RelevanceScorer:
-    """Scores essay relevance to aliyot using Claude."""
+    """Scores essay relevance to aliyot using Gemini."""
 
     def __init__(
         self,
-        model: str = "claude-3-haiku-20240307",
+        model: str = "gemini-2.0-flash",
         data_dir: Path | None = None,
     ):
         self.model = model
@@ -80,16 +82,16 @@ class RelevanceScorer:
         self._client: Any = None
 
     def _get_client(self):
-        """Get or create Anthropic client."""
+        """Get or create Gemini client."""
         if self._client is None:
-            if anthropic is None:
-                raise ImportError("anthropic package required. Install with: pip install anthropic")
+            if genai is None:
+                raise ImportError("google-genai package required. Install with: pip install google-genai")
 
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
+            api_key = os.environ.get("GOOGLE_API_KEY")
             if not api_key:
-                raise ValueError("ANTHROPIC_API_KEY environment variable required")
+                raise ValueError("GOOGLE_API_KEY environment variable required")
 
-            self._client = anthropic.Anthropic(api_key=api_key)
+            self._client = genai.Client(api_key=api_key)
 
         return self._client
 
@@ -101,16 +103,16 @@ class RelevanceScorer:
         """
         Score the relevance of an essay to a specific aliyah.
 
-        Uses Claude to evaluate the connection.
+        Uses Gemini to evaluate the connection.
         """
         # Build the user prompt
         user_prompt = self._build_prompt(essay, aliyah_text)
 
-        # Call Claude (sync API, run in executor for async)
+        # Call Gemini (sync API, run in executor for async)
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,
-            lambda: self._call_claude(user_prompt),
+            lambda: self._call_gemini(user_prompt),
         )
 
         # Parse the response
@@ -149,23 +151,23 @@ class RelevanceScorer:
 
 Rate the relevance of this essay to this aliyah."""
 
-    def _call_claude(self, user_prompt: str) -> str:
-        """Make a synchronous call to Claude API."""
+    def _call_gemini(self, user_prompt: str) -> str:
+        """Make a synchronous call to Gemini API."""
         client = self._get_client()
 
-        message = client.messages.create(
+        response = client.models.generate_content(
             model=self.model,
-            max_tokens=300,
-            messages=[
-                {"role": "user", "content": user_prompt}
-            ],
-            system=SYSTEM_PROMPT,
+            contents=user_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                max_output_tokens=300,
+            )
         )
 
-        return message.content[0].text
+        return response.text
 
     def _parse_response(self, response: str) -> RelevanceScore:
-        """Parse Claude's JSON response into a RelevanceScore."""
+        """Parse Gemini's JSON response into a RelevanceScore."""
         try:
             # Clean up response (remove any markdown code blocks)
             cleaned = response.strip()
@@ -418,7 +420,7 @@ Rate the relevance of this essay to this aliyah."""
 
 async def main():
     """Example usage of RelevanceScorer."""
-    print("RelevanceScorer requires ANTHROPIC_API_KEY environment variable.")
+    print("RelevanceScorer requires GOOGLE_API_KEY environment variable.")
     print("Use scripts/compute_relevance.py to pre-compute scores.")
 
 

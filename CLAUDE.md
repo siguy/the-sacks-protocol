@@ -23,12 +23,12 @@ pip install -e ".[dev]"
 
 # Configure environment (REQUIRED)
 cp .env.example .env
-# Edit .env and add your Anthropic API key:
-#   ANTHROPIC_API_KEY=sk-ant-...
-# Get your key at: https://console.anthropic.com/
+# Edit .env and add your Google Gemini API key:
+#   GOOGLE_API_KEY=your-key-here
+# Get your key at: https://aistudio.google.com/apikey
 ```
 
-**Note**: The Anthropic API key is required for essay relevance scoring. Without it, the generator will fall back to heuristic keyword matching.
+**Note**: The Google Gemini API key is required for essay relevance scoring. Without it, the generator will fall back to heuristic keyword matching.
 
 ## Core Commands
 

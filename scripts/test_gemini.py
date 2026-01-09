@@ -109,12 +109,16 @@ This essay discusses the nature of faith during times of suffering and how Moses
 Rate the relevance of this essay to this aliyah."""
 
         # Use system_instruction in config
+        # Note: Gemini 2.5 has thinking mode - we need enough budget or disable it
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=test_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
-                max_output_tokens=500,
+                max_output_tokens=1024,
+                thinking_config=types.ThinkingConfig(
+                    thinking_budget=0  # Disable thinking for simple JSON response
+                ),
             )
         )
 

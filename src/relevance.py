@@ -362,27 +362,33 @@ Rate the relevance of this essay to this aliyah."""
             if best_essay and highest_score >= threshold:
                 return best_essay, best_score, True
 
-            # No strong match - return first essay without relevance claim
-            return essays[0], best_score, False
+            # No strong match - skip essay for this day
+            return None, best_score, False
 
         # No relevance data - use heuristic title/content matching
-        best_essay = self._heuristic_select(essays, aliyah_keywords)
-        return best_essay, None, False
+        # Only return essay if it has a reasonable keyword match
+        best_essay, match_score = self._heuristic_select(essays, aliyah_keywords)
+        if match_score >= 3:  # At least 3 keyword matches
+            return best_essay, None, False
+        return None, None, False
 
     def _heuristic_select(
         self,
         essays: list[SacksEssay],
         aliyah_keywords: list[str] | None,
-    ) -> SacksEssay:
+    ) -> tuple[SacksEssay | None, int]:
         """
         Select essay using heuristic keyword matching when no relevance data available.
+
+        Returns:
+            (essay, match_score) - essay with highest score and the score value
         """
         print(f"   DEBUG: Heuristic essay selection")
         print(f"   DEBUG: Keywords from aliyah: {aliyah_keywords}")
 
         if not aliyah_keywords or not essays:
-            print(f"   DEBUG: No keywords or essays, returning first essay")
-            return essays[0] if essays else None
+            print(f"   DEBUG: No keywords or essays, returning None")
+            return None, 0
 
         # Score each essay by keyword matches in title and first 500 chars of text
         scored = []
@@ -415,8 +421,9 @@ Rate the relevance of this essay to this aliyah."""
             if matches:
                 print(f"         Matches: {', '.join(matches[:5])}")
 
-        # Return highest scoring essay (or first if no matches)
-        return scored[0][1]
+        # Return highest scoring essay and its score
+        best_score, best_essay, _ = scored[0]
+        return best_essay, best_score
 
 
 # ─────────────────────────────────────────────────────────────────

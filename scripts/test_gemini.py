@@ -168,7 +168,10 @@ def test_json_parsing(response_text: str):
 
     except json.JSONDecodeError as e:
         print(f"❌ FAILED: JSON parse error: {e}")
-        print(f"  Raw text: {response_text}")
+        print(f"  Raw text length: {len(response_text)}")
+        print(f"  Cleaned text length: {len(cleaned)}")
+        print(f"  Full cleaned text:")
+        print(repr(cleaned))
         return False
 
 

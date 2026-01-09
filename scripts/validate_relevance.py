@@ -39,8 +39,10 @@ async def main():
         sunday = date(2026, 1, 4)
         today_info = await calendar.get_today_info(sunday)
         parsha = today_info.parsha
+        book = today_info.aliyot[0].book if today_info.aliyot else "Exodus"
 
         print(f"\n📖 PARSHA: {parsha}")
+        print(f"   Book: {book}")
         print(f"   Week of: {sunday.strftime('%B %d, %Y')}")
         print("-" * 70)
 
@@ -51,7 +53,7 @@ async def main():
         print("PART 1: ALL SACKS ESSAYS FOR THIS PARSHA")
         print("=" * 70)
 
-        sacks_corpus = await sacks_retriever.get_parsha_essays(parsha)
+        sacks_corpus = await sacks_retriever.get_essays_for_parsha(parsha, book)
 
         print(f"\nFound {len(sacks_corpus.essays)} essays:\n")
         for i, essay in enumerate(sacks_corpus.essays, 1):

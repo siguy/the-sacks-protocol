@@ -5,11 +5,19 @@ Ties together all components to generate daily output:
 1. Get today's calendar info (parsha, aliyah)
 2. Fetch aliyah text with Hebrew + English
 3. Select traditional commentary via link graph + rotation
-4. Fetch Sacks essays and select best match
+4. Look up cached Sacks essay (from weekly pre-computation)
 5. Format output for WhatsApp
+
+Weekly pre-computation (scripts/prepare_week.py) handles:
+- Fetching all essays for the parsha
+- Greedy matching essays to aliyot
+- Generating Gemini summaries for each essay
+
+This separation reduces API calls and enables review before delivery.
 """
 
 import asyncio
+import json
 import os
 from datetime import date
 from pathlib import Path
@@ -24,16 +32,30 @@ from .relevance import RelevanceScorer, RelevanceScore
 from .formatter import OutputFormatter, FormattedOutput
 
 
+CACHE_DIR = Path(__file__).parent.parent / "data" / "weekly_cache"
+
+
 class DailyGenerator:
     """Generates daily Torah wisdom output."""
 
     def __init__(
         self,
         output_dir: Path | None = None,
-        use_precomputed_relevance: bool = True,
+        use_cache: bool = True,
     ):
         self.output_dir = output_dir or Path(__file__).parent.parent / "output"
-        self.use_precomputed_relevance = use_precomputed_relevance
+        self.use_cache = use_cache
+
+    def _load_weekly_cache(self, parsha_name: str) -> dict | None:
+        """Load cached weekly data for a parsha."""
+        slug = parsha_name.lower().replace(" ", "_").replace("-", "_")
+        filepath = CACHE_DIR / f"{slug}.json"
+
+        if not filepath.exists():
+            return None
+
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
 
     async def generate(self, for_date: date | None = None) -> FormattedOutput:
         """
@@ -50,8 +72,6 @@ class DailyGenerator:
             calendar = JewishCalendar(client)
             aliyah_retriever = AliyahRetriever(client)
             commentary_selector = CommentarySelector(client)
-            sacks_retriever = SacksRetriever(client)
-            relevance_scorer = RelevanceScorer()
             formatter = OutputFormatter()
 
             # 1. Get today's info
@@ -60,7 +80,7 @@ class DailyGenerator:
             print(f"   Parsha: {today_info.parsha.name_en}")
             print(f"   Aliyot: {[a.number for a in today_info.aliyot]}")
 
-            # 2. Fetch aliyah text
+            # 2. Fetch today's aliyah text (only the ones we need for display)
             print("\n📖 Fetching aliyah text...")
             aliyah_texts = []
             for aliyah in today_info.aliyot:
@@ -84,64 +104,90 @@ class DailyGenerator:
             else:
                 print("   No commentary found")
 
-            # 4. Fetch Sacks essays
-            print("\n✡️ Fetching Sacks essays...")
-            sacks_corpus = await sacks_retriever.get_essays_for_parsha(
-                today_info.parsha.name_en,
-                today_info.parsha.book,
-            )
-            print(f"   Found {len(sacks_corpus.essays)} essays")
-
-            # 5. Select Sacks essay using GREEDY MATCHING across all aliyot
+            # 4. Get Sacks essay from cache (or compute if no cache)
             sacks_essay: SacksEssay | None = None
-            relevance_score: RelevanceScore | None = None
+            cached_sections: dict | None = None
             is_aliyah_relevant = False
+            primary_aliyah_num = today_info.aliyot[0].number
 
-            if sacks_corpus.essays:
-                print("\n🎯 Computing weekly essay assignments...")
+            # Try to load from weekly cache
+            cache = self._load_weekly_cache(today_info.parsha.name_en) if self.use_cache else None
 
-                # Fetch all 7 aliyah texts for greedy matching
-                all_aliyah_texts = await self._fetch_all_aliyah_texts(
-                    today_info.parsha, aliyah_retriever
-                )
-
-                # Compute greedy assignments for the week
-                weekly_assignments = relevance_scorer.compute_weekly_assignments(
-                    essays=sacks_corpus.essays,
-                    aliyah_texts=all_aliyah_texts,
-                    book=today_info.parsha.book,
-                    threshold=6,  # Require meaningful match
-                )
+            if cache:
+                print("\n✡️ Loading from weekly cache...")
+                print(f"   Cache computed: {cache.get('computed_at', 'unknown')}")
 
                 # Get assignment for today's aliyah
-                primary_aliyah_num = today_info.aliyot[0].number
-                assignment = weekly_assignments.get(primary_aliyah_num)
+                assignment = cache.get("assignments", {}).get(str(primary_aliyah_num))
 
                 if assignment:
-                    sacks_essay, score_data = assignment
-                    is_aliyah_relevant = score_data.get("verse_score", 0) > 0
-                    print(f"\n   ✅ Today's essay: \"{sacks_essay.title}\"")
-                    if score_data.get("verse_matches"):
-                        print(f"      Verse matches: {score_data['verse_matches']}")
-                    if score_data.get("theme_matches"):
-                        print(f"      Theme matches: {score_data['theme_matches'][:5]}")
-                else:
-                    print(f"\n   ❌ No essay assigned for aliyah {primary_aliyah_num}")
+                    # Create SacksEssay object from cache
+                    sacks_essay = SacksEssay(
+                        title=assignment["essay_title"],
+                        text="",  # We don't need full text - we have cached sections
+                        parsha=today_info.parsha.name_en,
+                        series="Covenant and Conversation",
+                        sefaria_ref=assignment.get("essay_sefaria_ref", ""),
+                    )
+                    cached_sections = assignment.get("sections")
+                    is_aliyah_relevant = assignment.get("score_data", {}).get("verse_score", 0) > 0
 
-            # 6. Format output
+                    print(f"   ✅ Essay: \"{sacks_essay.title}\"")
+                    if cached_sections:
+                        print(f"   ✅ Using pre-generated summaries")
+                else:
+                    print(f"   ❌ No essay assigned for aliyah {primary_aliyah_num}")
+
+            else:
+                # No cache - fall back to computing (with warning)
+                print("\n⚠️  No weekly cache found!")
+                print("   Run: python3 scripts/prepare_week.py")
+                print("   Falling back to live computation (slower)...")
+
+                # Fall back to current behavior
+                sacks_retriever = SacksRetriever(client)
+                relevance_scorer = RelevanceScorer()
+
+                sacks_corpus = await sacks_retriever.get_essays_for_parsha(
+                    today_info.parsha.name_en,
+                    today_info.parsha.book,
+                )
+                print(f"   Found {len(sacks_corpus.essays)} essays")
+
+                if sacks_corpus.essays:
+                    print("\n🎯 Computing weekly essay assignments...")
+                    all_aliyah_texts = await self._fetch_all_aliyah_texts(
+                        today_info.parsha, aliyah_retriever
+                    )
+
+                    weekly_assignments = relevance_scorer.compute_weekly_assignments(
+                        essays=sacks_corpus.essays,
+                        aliyah_texts=all_aliyah_texts,
+                        book=today_info.parsha.book,
+                        threshold=6,
+                    )
+
+                    assignment = weekly_assignments.get(primary_aliyah_num)
+                    if assignment:
+                        sacks_essay, score_data = assignment
+                        is_aliyah_relevant = score_data.get("verse_score", 0) > 0
+                        print(f"\n   ✅ Today's essay: \"{sacks_essay.title}\"")
+
+            # 5. Format output
             print("\n✨ Formatting output...")
             output = await formatter.format_daily_output(
                 today_info=today_info,
                 aliyah_text=primary_aliyah_text,
                 commentary=commentary,
                 sacks_essay=sacks_essay,
-                relevance_score=relevance_score,
+                relevance_score=None,
                 is_aliyah_relevant=is_aliyah_relevant,
+                cached_essay_sections=cached_sections,  # Pass cached sections
             )
 
             print(f"   Word count: {output.word_count}")
 
-            # 7. Save output
+            # 6. Save output
             self._save_output(output, today_info)
 
             return output

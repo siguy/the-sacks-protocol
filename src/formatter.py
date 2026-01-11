@@ -73,6 +73,7 @@ class OutputFormatter:
         sacks_essay: SacksEssay | None,
         relevance_score: RelevanceScore | None,
         is_aliyah_relevant: bool,
+        cached_essay_sections: dict[str, str] | None = None,
     ) -> FormattedOutput:
         """
         Format the complete daily output.
@@ -100,7 +101,8 @@ class OutputFormatter:
         # 4. The Sacksian Lens
         if sacks_essay:
             sacks_section = await self._format_sacks_section(
-                sacks_essay, today_info.parsha.name_en, relevance_score, is_aliyah_relevant
+                sacks_essay, today_info.parsha.name_en, relevance_score, is_aliyah_relevant,
+                cached_sections=cached_essay_sections,
             )
             sections.append(sacks_section)
 
@@ -406,6 +408,7 @@ Return ONLY a valid JSON array with no other text:
         parsha_name: str,
         relevance_score: RelevanceScore | None,
         is_aliyah_relevant: bool,
+        cached_sections: dict[str, str] | None = None,
     ) -> str:
         """Format the Rabbi Sacks section."""
         lines = [
@@ -426,8 +429,13 @@ Return ONLY a valid JSON array with no other text:
         lines.append(f"{self.BOLD_START}THE SACKSIAN LENS{self.BOLD_END}")
         lines.append("")
 
-        # Extract key sections from essay using Gemini summarization
-        essay_sections = await self._extract_essay_sections_with_llm(essay)
+        # Use cached sections if available, otherwise generate with Gemini
+        if cached_sections:
+            print("   DEBUG: Using cached essay sections")
+            essay_sections = cached_sections
+        else:
+            print("   DEBUG: No cached sections - generating with Gemini")
+            essay_sections = await self._extract_essay_sections_with_llm(essay)
 
         # THE QUESTION - textual difficulty or moral tension
         if essay_sections.get("question"):

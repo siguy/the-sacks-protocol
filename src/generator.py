@@ -92,41 +92,41 @@ class DailyGenerator:
             )
             print(f"   Found {len(sacks_corpus.essays)} essays")
 
-            # 5. Select best Sacks essay using relevance scoring
+            # 5. Select Sacks essay using GREEDY MATCHING across all aliyot
             sacks_essay: SacksEssay | None = None
             relevance_score: RelevanceScore | None = None
             is_aliyah_relevant = False
 
             if sacks_corpus.essays:
-                print("\n🎯 Checking relevance...")
+                print("\n🎯 Computing weekly essay assignments...")
 
-                # Try to load pre-computed relevance
-                relevance_data = None
-                if self.use_precomputed_relevance:
-                    relevance_data = relevance_scorer.load_relevance_data(
-                        today_info.parsha.name_en
-                    )
-                    if relevance_data:
-                        print("   Using pre-computed relevance scores")
-
-                # Extract keywords from aliyah for heuristic matching
-                aliyah_keywords = self._extract_keywords(primary_aliyah_text)
-
-                # Select best essay
-                primary_aliyah_num = today_info.aliyot[0].number
-                sacks_essay, relevance_score, is_aliyah_relevant = (
-                    relevance_scorer.select_best_essay(
-                        sacks_corpus.essays,
-                        relevance_data,
-                        primary_aliyah_num,
-                        aliyah_keywords=aliyah_keywords,
-                    )
+                # Fetch all 7 aliyah texts for greedy matching
+                all_aliyah_texts = await self._fetch_all_aliyah_texts(
+                    today_info.parsha, aliyah_retriever
                 )
 
-                if sacks_essay:
-                    print(f"   Selected: \"{sacks_essay.title}\"")
-                    if is_aliyah_relevant:
-                        print(f"   📍 Directly relevant to aliyah {primary_aliyah_num}!")
+                # Compute greedy assignments for the week
+                weekly_assignments = relevance_scorer.compute_weekly_assignments(
+                    essays=sacks_corpus.essays,
+                    aliyah_texts=all_aliyah_texts,
+                    book=today_info.parsha.book,
+                    threshold=6,  # Require meaningful match
+                )
+
+                # Get assignment for today's aliyah
+                primary_aliyah_num = today_info.aliyot[0].number
+                assignment = weekly_assignments.get(primary_aliyah_num)
+
+                if assignment:
+                    sacks_essay, score_data = assignment
+                    is_aliyah_relevant = score_data.get("verse_score", 0) > 0
+                    print(f"\n   ✅ Today's essay: \"{sacks_essay.title}\"")
+                    if score_data.get("verse_matches"):
+                        print(f"      Verse matches: {score_data['verse_matches']}")
+                    if score_data.get("theme_matches"):
+                        print(f"      Theme matches: {score_data['theme_matches'][:5]}")
+                else:
+                    print(f"\n   ❌ No essay assigned for aliyah {primary_aliyah_num}")
 
             # 6. Format output
             print("\n✨ Formatting output...")
@@ -145,6 +145,61 @@ class DailyGenerator:
             self._save_output(output, today_info)
 
             return output
+
+    async def _fetch_all_aliyah_texts(
+        self,
+        parsha: "Parsha",
+        aliyah_retriever: AliyahRetriever,
+    ) -> dict[int, AliyahText]:
+        """
+        Fetch all 7 aliyah texts for a parsha (needed for greedy matching).
+
+        Returns:
+            Dict mapping aliyah number (1-7) to AliyahText
+        """
+        from .calendar import Aliyah, ALIYOT_DATA
+
+        all_texts = {}
+
+        # Get aliyah refs from ALIYOT_DATA
+        parsha_name = parsha.name_en
+        parsha_data = None
+
+        if ALIYOT_DATA and "aliyot" in ALIYOT_DATA:
+            parsha_data = ALIYOT_DATA["aliyot"].get(parsha_name)
+            # Try variations
+            if not parsha_data:
+                for name in [parsha_name.replace(" ", "_"), parsha_name.title()]:
+                    parsha_data = ALIYOT_DATA["aliyot"].get(name)
+                    if parsha_data:
+                        break
+
+        if not parsha_data or "aliyot" not in parsha_data:
+            print(f"   Warning: No aliyah data found for {parsha_name}")
+            return all_texts
+
+        aliyah_refs = parsha_data["aliyot"]
+
+        for aliyah_num in range(1, 8):
+            ref = aliyah_refs.get(aliyah_num, "")
+            if not ref:
+                continue
+
+            # Create Aliyah object
+            aliyah = Aliyah(
+                number=aliyah_num,
+                ref=ref,
+                start_verse=ref.split("-")[0] if "-" in ref else ref,
+                end_verse=ref.split("-")[1] if "-" in ref else ref,
+            )
+
+            try:
+                text = await aliyah_retriever.get_aliyah_text(aliyah)
+                all_texts[aliyah_num] = text
+            except Exception as e:
+                print(f"   Warning: Could not fetch aliyah {aliyah_num}: {e}")
+
+        return all_texts
 
     def _extract_keywords(self, aliyah_text: AliyahText) -> list[str]:
         """

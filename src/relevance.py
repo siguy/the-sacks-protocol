@@ -425,6 +425,302 @@ Rate the relevance of this essay to this aliyah."""
         best_score, best_essay, _ = scored[0]
         return best_essay, best_score
 
+    # ─────────────────────────────────────────────────────────────
+    # Weekly Greedy Matching
+    # ─────────────────────────────────────────────────────────────
+
+    def compute_weekly_assignments(
+        self,
+        essays: list[SacksEssay],
+        aliyah_texts: dict[int, "AliyahText"],
+        book: str,
+        threshold: int = 3,
+    ) -> dict[int, tuple[SacksEssay, dict] | None]:
+        """
+        Compute essay-to-aliyah assignments for the week using greedy matching.
+
+        Algorithm:
+        1. Score ALL essays against ALL aliyot (verse matching + theme matching)
+        2. Build score matrix
+        3. Greedy assign: highest score wins, each essay used at most once
+        4. Return mapping of aliyah_num -> (essay, score_data) or None
+
+        Args:
+            essays: List of Sacks essays for this parsha
+            aliyah_texts: Dict mapping aliyah_num -> AliyahText
+            book: Torah book name (e.g., "Exodus")
+            threshold: Minimum score to assign an essay
+
+        Returns:
+            Dict mapping aliyah_num -> (essay, score_data) or None if no match
+        """
+        import re
+
+        print("   📊 Computing weekly essay assignments (greedy matching)...")
+
+        if not essays or not aliyah_texts:
+            return {num: None for num in aliyah_texts.keys()}
+
+        # Build score matrix: aliyah_num -> {essay_title: score_data}
+        score_matrix: dict[int, dict[str, dict]] = {}
+
+        for aliyah_num, aliyah_text in aliyah_texts.items():
+            score_matrix[aliyah_num] = {}
+            aliyah_ref = aliyah_text.aliyah.ref
+
+            for essay in essays:
+                score_data = self._score_essay_for_aliyah(
+                    essay, aliyah_text, aliyah_ref, book
+                )
+                score_matrix[aliyah_num][essay.title] = score_data
+
+        # Greedy matching
+        assignments = self._greedy_match(score_matrix, essays, threshold)
+
+        # Log results
+        for aliyah_num in sorted(aliyah_texts.keys()):
+            if aliyah_num in assignments and assignments[aliyah_num]:
+                essay, score_data = assignments[aliyah_num]
+                print(f"      Aliyah {aliyah_num}: \"{essay.title}\" (score: {score_data['total_score']})")
+            else:
+                print(f"      Aliyah {aliyah_num}: NO ESSAY")
+
+        return assignments
+
+    def _score_essay_for_aliyah(
+        self,
+        essay: SacksEssay,
+        aliyah_text: "AliyahText",
+        aliyah_ref: str,
+        book: str,
+    ) -> dict:
+        """Score an essay's relevance to an aliyah using verse + theme matching."""
+        import re
+
+        result = {
+            "verse_score": 0,
+            "verse_matches": [],
+            "theme_score": 0,
+            "theme_matches": [],
+            "total_score": 0,
+        }
+
+        # 1. VERSE MATCHING (10 pts each)
+        essay_verses = self._extract_verse_refs(essay.text, book)
+        start_ch, start_v, end_ch, end_v = self._parse_aliyah_range(aliyah_ref)
+
+        for ch, v in essay_verses:
+            if self._verse_in_range(ch, v, start_ch, start_v, end_ch, end_v):
+                result["verse_matches"].append(f"{ch}:{v}")
+                result["verse_score"] += 10
+
+        # 2. THEMATIC MATCHING (3 pts each)
+        aliyah_themes = self._generate_aliyah_themes(aliyah_text)
+        essay_themes = self._generate_essay_themes(essay)
+
+        overlap = aliyah_themes & essay_themes
+        result["theme_matches"] = list(overlap)
+        result["theme_score"] = len(overlap) * 3
+
+        # 3. TITLE BONUS (5 pts per theme in title)
+        title_lower = essay.title.lower()
+        for theme in aliyah_themes:
+            if theme in title_lower:
+                result["theme_score"] += 5
+                result["theme_matches"].append(f"TITLE:{theme}")
+
+        result["total_score"] = result["verse_score"] + result["theme_score"]
+        return result
+
+    def _extract_verse_refs(self, text: str, book: str) -> list[tuple[int, int]]:
+        """Extract verse references from essay text."""
+        import re
+        refs = []
+
+        # Pattern 1: Full book reference "Exodus 3:14"
+        book_pattern = rf'{book}\s+(\d+):(\d+)'
+        for match in re.finditer(book_pattern, text, re.IGNORECASE):
+            chapter, verse = int(match.group(1)), int(match.group(2))
+            refs.append((chapter, verse))
+
+        # Pattern 2: Chapter:verse without book (e.g., "3:14")
+        cv_pattern = r'(?<![:\d])(\d{1,2}):(\d{1,2})(?!\d)'
+        for match in re.finditer(cv_pattern, text):
+            chapter, verse = int(match.group(1)), int(match.group(2))
+            if chapter <= 50 and verse <= 100:
+                refs.append((chapter, verse))
+
+        return list(set(refs))
+
+    def _parse_aliyah_range(self, ref: str) -> tuple[int, int, int, int]:
+        """Parse aliyah reference to get start/end chapter:verse."""
+        import re
+        match = re.search(r'(\d+):(\d+)-(?:(\d+):)?(\d+)', ref)
+        if match:
+            start_ch = int(match.group(1))
+            start_v = int(match.group(2))
+            end_ch = int(match.group(3)) if match.group(3) else start_ch
+            end_v = int(match.group(4))
+            return (start_ch, start_v, end_ch, end_v)
+        return (0, 0, 0, 0)
+
+    def _verse_in_range(
+        self, chapter: int, verse: int,
+        start_ch: int, start_v: int,
+        end_ch: int, end_v: int
+    ) -> bool:
+        """Check if a verse falls within an aliyah range."""
+        if chapter < start_ch or chapter > end_ch:
+            return False
+        if chapter == start_ch and verse < start_v:
+            return False
+        if chapter == end_ch and verse > end_v:
+            return False
+        return True
+
+    def _generate_aliyah_themes(self, aliyah_text: "AliyahText") -> set[str]:
+        """Generate theme set from aliyah content."""
+        all_text = " ".join(v.english for v in aliyah_text.verses if v.english).lower()
+
+        themes = set()
+
+        # Characters
+        for char in ["moses", "aaron", "pharaoh", "god", "lord", "israel", "midwives"]:
+            if char in all_text:
+                themes.add(char)
+
+        # Events/concepts
+        concept_map = {
+            "burning bush": "burning bush",
+            "i am": "divine name",
+            "afraid": "fear",
+            "holy ground": "holiness",
+            "oppression": "oppression",
+            "cry": "suffering",
+            "deliver": "redemption",
+            "signs": "signs",
+            "staff": "signs",
+            "serpent": "signs",
+            "blood": "plagues",
+            "firstborn": "firstborn",
+            "passover": "passover",
+            "sea": "sea",
+            "song": "song",
+            "slave": "slavery",
+            "birth": "birth",
+            "hide": "hiding",
+            "basket": "rescue",
+            "daughter": "compassion",
+            "kill": "violence",
+            "flee": "exile",
+            "shepherd": "shepherd",
+        }
+        for pattern, theme in concept_map.items():
+            if pattern in all_text:
+                themes.add(theme)
+
+        return themes
+
+    def _generate_essay_themes(self, essay: SacksEssay) -> set[str]:
+        """Generate theme set from essay text."""
+        text = essay.text[:3000].lower()
+
+        themes = set()
+
+        # Key Sacks themes
+        theme_map = {
+            "leadership": "leadership",
+            "freedom": "freedom",
+            "identity": "identity",
+            "covenant": "covenant",
+            "faith": "faith",
+            "fear": "fear",
+            "courage": "courage",
+            "name": "name",
+            "call": "calling",
+            "mission": "mission",
+            "responsibility": "responsibility",
+            "evil": "evil",
+            "justice": "justice",
+            "compassion": "compassion",
+            "hope": "hope",
+            "redemption": "redemption",
+            "transformation": "transformation",
+            "choice": "choice",
+            "moses": "moses",
+            "pharaoh": "pharaoh",
+            "burning bush": "burning bush",
+            "slave": "slavery",
+            "oppression": "oppression",
+            "midwives": "midwives",
+        }
+
+        for pattern, theme in theme_map.items():
+            if pattern in text:
+                themes.add(theme)
+
+        return themes
+
+    def _greedy_match(
+        self,
+        score_matrix: dict[int, dict[str, dict]],
+        essays: list[SacksEssay],
+        threshold: int,
+    ) -> dict[int, tuple[SacksEssay, dict] | None]:
+        """
+        Greedy matching algorithm.
+
+        Args:
+            score_matrix: {aliyah_num: {essay_title: score_data}}
+            essays: List of essays (for lookup by title)
+            threshold: Minimum score to assign
+
+        Returns:
+            {aliyah_num: (essay, score_data) or None}
+        """
+        # Build essay lookup
+        essay_by_title = {e.title: e for e in essays}
+
+        # Flatten to list of (score, aliyah_num, essay_title, score_data)
+        all_scores = []
+        for aliyah_num, essays_scores in score_matrix.items():
+            for essay_title, score_data in essays_scores.items():
+                all_scores.append((
+                    score_data["total_score"],
+                    aliyah_num,
+                    essay_title,
+                    score_data
+                ))
+
+        # Sort by score descending
+        all_scores.sort(key=lambda x: x[0], reverse=True)
+
+        # Greedy assignment
+        assignments: dict[int, tuple[SacksEssay, dict] | None] = {}
+        used_essays: set[str] = set()
+
+        for score, aliyah_num, essay_title, score_data in all_scores:
+            # Skip if aliyah already has an essay or essay already used
+            if aliyah_num in assignments:
+                continue
+            if essay_title in used_essays:
+                continue
+            # Skip if score below threshold
+            if score < threshold:
+                continue
+
+            essay = essay_by_title.get(essay_title)
+            if essay:
+                assignments[aliyah_num] = (essay, score_data)
+                used_essays.add(essay_title)
+
+        # Fill in None for unassigned aliyot
+        for aliyah_num in score_matrix.keys():
+            if aliyah_num not in assignments:
+                assignments[aliyah_num] = None
+
+        return assignments
+
 
 # ─────────────────────────────────────────────────────────────────
 # Standalone usage

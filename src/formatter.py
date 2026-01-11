@@ -99,11 +99,10 @@ class OutputFormatter:
 
         # 4. The Sacksian Lens
         if sacks_essay:
-            sections.append(
-                self._format_sacks_section(
-                    sacks_essay, today_info.parsha.name_en, relevance_score, is_aliyah_relevant
-                )
+            sacks_section = await self._format_sacks_section(
+                sacks_essay, today_info.parsha.name_en, relevance_score, is_aliyah_relevant
             )
+            sections.append(sacks_section)
 
         # Combine sections
         full_text = "\n\n".join(sections)
@@ -401,7 +400,7 @@ Return ONLY a valid JSON array with no other text:
         print(f"   DEBUG: Dibur hamatchil (first 4 words): '{dibur}'")
         return formatted
 
-    def _format_sacks_section(
+    async def _format_sacks_section(
         self,
         essay: SacksEssay,
         parsha_name: str,
@@ -427,8 +426,8 @@ Return ONLY a valid JSON array with no other text:
         lines.append(f"{self.BOLD_START}THE SACKSIAN LENS{self.BOLD_END}")
         lines.append("")
 
-        # Extract key sections from essay using Sacks' characteristic structure
-        essay_sections = self._extract_essay_sections(essay.text)
+        # Extract key sections from essay using Gemini summarization
+        essay_sections = await self._extract_essay_sections_with_llm(essay)
 
         # THE QUESTION - textual difficulty or moral tension
         if essay_sections.get("question"):
@@ -462,6 +461,87 @@ Return ONLY a valid JSON array with no other text:
         lines.append(f"  {essay.series} · {essay.parsha}")
 
         return "\n".join(lines)
+
+    async def _extract_essay_sections_with_llm(self, essay: SacksEssay) -> dict[str, str]:
+        """
+        Use Gemini to extract and summarize the 4 key sections from a Sacks essay.
+
+        Returns:
+            Dict with keys: 'question', 'turn', 'insight', 'call'
+        """
+        if not self.gemini_client:
+            print("   DEBUG: No Gemini client - falling back to heuristic extraction")
+            return self._extract_essay_sections(essay.text)
+
+        prompt = f"""Analyze this Rabbi Jonathan Sacks essay and extract 4 key sections that follow his characteristic structure. For each section, write a clear, complete 2-3 sentence summary.
+
+ESSAY TITLE: "{essay.title}"
+
+ESSAY TEXT:
+{essay.text[:6000]}
+
+---
+
+Extract these 4 sections:
+
+1. THE QUESTION: What textual difficulty, paradox, or moral tension does Rabbi Sacks identify at the start? Summarize the core question he's asking.
+
+2. THE TURN: What unexpected lens does he introduce - philosophical, historical, linguistic, or from another tradition? Summarize this pivotal insight.
+
+3. THE INSIGHT: What is his central synthesis of Torah wisdom with universal truth? Summarize his main teaching.
+
+4. THE CALL: What practical or ethical implication does he draw for our lives today? Summarize his call to action.
+
+Return ONLY valid JSON with no other text:
+{{"question": "...", "turn": "...", "insight": "...", "call": "..."}}
+
+Each summary should be 2-3 complete sentences. Do not truncate mid-sentence."""
+
+        try:
+            print(f"   DEBUG: Calling Gemini to extract Sacks essay sections...")
+            import asyncio
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.gemini_client.models.generate_content(
+                    model="gemini-3-flash-preview",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=2048,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=0
+                        ),
+                    )
+                )
+            )
+
+            # Parse JSON response
+            import json
+            response_text = response.text.strip()
+            print(f"   DEBUG: Gemini response length: {len(response_text)} chars")
+
+            # Extract JSON from markdown if needed
+            if response_text.startswith("```"):
+                parts = response_text.split("```")
+                if len(parts) >= 2:
+                    response_text = parts[1]
+                    if response_text.lower().startswith("json"):
+                        response_text = response_text[4:].lstrip()
+            response_text = response_text.strip()
+
+            sections = json.loads(response_text)
+            print(f"   DEBUG: Successfully extracted {len(sections)} sections")
+            for key in ["question", "turn", "insight", "call"]:
+                if key in sections:
+                    preview = sections[key][:80] + "..." if len(sections[key]) > 80 else sections[key]
+                    print(f"      {key.upper()}: {preview}")
+
+            return sections
+
+        except Exception as e:
+            print(f"   DEBUG: Error extracting sections with Gemini: {e}")
+            print(f"   DEBUG: Falling back to heuristic extraction")
+            return self._extract_essay_sections(essay.text)
 
     def _extract_essay_sections(self, essay_text: str) -> dict[str, str]:
         """

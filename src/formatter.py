@@ -427,23 +427,28 @@ Return ONLY a valid JSON array with no other text:
         lines.append(f"{self.BOLD_START}THE SACKSIAN LENS{self.BOLD_END}")
         lines.append("")
 
-        # Extract key sections from essay
-        # We'll use a simple heuristic: first paragraph as "difficulty", middle as "insight"
+        # Extract key sections from essay using Sacks' characteristic structure
         essay_sections = self._extract_essay_sections(essay.text)
 
-        # The Difficulty (opening question/tension)
-        if essay_sections.get("difficulty"):
-            lines.append(f"{self.BOLD_START}THE DIFFICULTY{self.BOLD_END}")
-            lines.append(essay_sections["difficulty"])
+        # THE QUESTION - textual difficulty or moral tension
+        if essay_sections.get("question"):
+            lines.append(f"{self.BOLD_START}THE QUESTION{self.BOLD_END}")
+            lines.append(essay_sections["question"])
             lines.append("")
 
-        # The Insight (core synthesis)
+        # THE TURN - unexpected lens (philosophy, history, linguistics)
+        if essay_sections.get("turn"):
+            lines.append(f"{self.BOLD_START}THE TURN{self.BOLD_END}")
+            lines.append(essay_sections["turn"])
+            lines.append("")
+
+        # THE INSIGHT - synthesizes Torah + universal wisdom
         if essay_sections.get("insight"):
             lines.append(f"{self.BOLD_START}THE INSIGHT{self.BOLD_END}")
             lines.append(essay_sections["insight"])
             lines.append("")
 
-        # The Call (practical implication)
+        # THE CALL - practical/ethical implication
         if essay_sections.get("call"):
             lines.append(f"{self.BOLD_START}THE CALL{self.BOLD_END}")
             lines.append(essay_sections["call"])
@@ -460,14 +465,12 @@ Return ONLY a valid JSON array with no other text:
 
     def _extract_essay_sections(self, essay_text: str) -> dict[str, str]:
         """
-        Extract key sections from a Sacks essay.
+        Extract key sections from a Sacks essay following his characteristic structure:
 
-        Uses heuristics to identify:
-        - Opening difficulty/question
-        - Core insight/synthesis
-        - Closing call to action
-
-        This is a simplified extraction - could be enhanced with LLM.
+        1. THE QUESTION - Opens with textual difficulty or moral tension
+        2. THE TURN - Introduces unexpected lens (philosophy, history, linguistics)
+        3. THE INSIGHT - Synthesizes Torah + universal wisdom
+        4. THE CALL - Ends with practical/ethical implication
         """
         # Split into paragraphs - handle both \n\n and single \n with blank lines
         raw_paragraphs = essay_text.split("\n")
@@ -489,78 +492,122 @@ Return ONLY a valid JSON array with no other text:
         paragraphs = [p for p in paragraphs if len(p) > 50]
 
         print(f"   DEBUG: Essay has {len(paragraphs)} substantial paragraphs")
-        print(f"   DEBUG: Essay text length: {len(essay_text)}")
-        if paragraphs:
-            print(f"   DEBUG: Paragraph 1 preview: {paragraphs[0][:150]}...")
-            if len(paragraphs) > 1:
-                print(f"   DEBUG: Paragraph 2 preview: {paragraphs[1][:150]}...")
 
         if not paragraphs:
             return {}
 
         sections = {}
+        used_indices = set()
 
-        # First substantial paragraph as "difficulty" (usually poses the question)
-        # Look for paragraphs that pose substantive questions
-        found_difficulty = False
+        # ═══════════════════════════════════════════════════════════════
+        # 1. THE QUESTION - textual difficulty or moral tension (early paragraphs)
+        # ═══════════════════════════════════════════════════════════════
+        question_keywords = [
+            "why", "how", "what", "?",
+            "problem", "difficulty", "puzzle", "paradox", "contradiction",
+            "strange", "surprising", "troubling", "perplexing",
+        ]
 
-        for i, p in enumerate(paragraphs[:6]):
+        for i, p in enumerate(paragraphs[:5]):
             p_lower = p.lower()
-            # Look for paragraphs with substantive questions (why/how/what + ?)
-            if ('why' in p_lower or 'how' in p_lower or 'what' in p_lower) and '?' in p:
-                sections["difficulty"] = self._truncate(p, 450)
-                found_difficulty = True
-                print(f"   DEBUG: Found difficulty at paragraph {i+1} with question")
+            # Look for paragraphs with questions or tension words
+            if '?' in p or any(kw in p_lower for kw in question_keywords[:3]):
+                sections["question"] = self._truncate(p, 400)
+                used_indices.add(i)
+                print(f"   DEBUG: Found QUESTION at paragraph {i+1}")
                 break
 
-        if not found_difficulty and paragraphs:
-            # Fall back to first substantial paragraph
-            sections["difficulty"] = self._truncate(paragraphs[0], 450)
-            print(f"   DEBUG: Using first paragraph as difficulty")
+        if "question" not in sections and paragraphs:
+            sections["question"] = self._truncate(paragraphs[0], 400)
+            used_indices.add(0)
+            print(f"   DEBUG: Using first paragraph as QUESTION")
 
-        # Middle section as "insight" (look for paragraphs with key Sacks synthesis words)
+        # ═══════════════════════════════════════════════════════════════
+        # 2. THE TURN - unexpected lens (philosophy, history, linguistics)
+        # ═══════════════════════════════════════════════════════════════
+        turn_keywords = [
+            "philosopher", "aristotle", "plato", "kant", "hegel", "nietzsche",
+            "historian", "history", "century", "ancient", "medieval",
+            "hebrew", "linguistic", "word", "root", "etymology",
+            "psycholog", "sociolog", "anthropolog",
+            "science", "research", "study", "experiment",
+            "however", "but consider", "yet there is", "interestingly",
+            "rabbi", "talmud", "midrash", "rashi", "ramban", "maimonides",
+        ]
+
+        # Look in early-middle paragraphs for the turn
+        turn_start = 1
+        turn_end = min(len(paragraphs) - 2, len(paragraphs) // 2 + 2)
+
+        for i in range(turn_start, turn_end):
+            if i in used_indices:
+                continue
+            p_lower = paragraphs[i].lower()
+            if any(kw in p_lower for kw in turn_keywords):
+                sections["turn"] = self._truncate(paragraphs[i], 400)
+                used_indices.add(i)
+                print(f"   DEBUG: Found TURN at paragraph {i+1}")
+                break
+
+        # ═══════════════════════════════════════════════════════════════
+        # 3. THE INSIGHT - synthesis of Torah + universal wisdom
+        # ═══════════════════════════════════════════════════════════════
         insight_keywords = [
             "therefore", "thus", "this teaches", "the answer", "in other words",
             "what we learn", "the truth is", "this is why", "the key", "the point",
             "here we see", "the lesson", "this means", "we learn", "the message",
+            "this is the", "herein lies", "the secret", "the essence",
         ]
 
-        # Look through middle paragraphs for insight
-        middle_start = max(2, len(paragraphs) // 4)
-        middle_end = min(len(paragraphs) - 2, 3 * len(paragraphs) // 4)
+        # Look through middle-to-late paragraphs for insight
+        middle_start = max(2, len(paragraphs) // 3)
+        middle_end = len(paragraphs) - 2
 
-        for p in paragraphs[middle_start:middle_end]:
-            p_lower = p.lower()
+        for i in range(middle_start, middle_end):
+            if i in used_indices:
+                continue
+            p_lower = paragraphs[i].lower()
             if any(kw in p_lower for kw in insight_keywords):
-                sections["insight"] = self._truncate(p, 450)
-                print(f"   DEBUG: Found insight with keyword")
+                sections["insight"] = self._truncate(paragraphs[i], 400)
+                used_indices.add(i)
+                print(f"   DEBUG: Found INSIGHT at paragraph {i+1}")
                 break
 
-        # If no insight found, use a middle paragraph
+        # Fallback: use a middle paragraph
         if "insight" not in sections and len(paragraphs) > 4:
             mid_idx = len(paragraphs) // 2
-            sections["insight"] = self._truncate(paragraphs[mid_idx], 450)
-            print(f"   DEBUG: Using middle paragraph as insight")
+            if mid_idx not in used_indices:
+                sections["insight"] = self._truncate(paragraphs[mid_idx], 400)
+                used_indices.add(mid_idx)
+                print(f"   DEBUG: Using middle paragraph as INSIGHT")
 
-        # Last substantial paragraph as "call" (usually practical application)
-        # Look for action-oriented or concluding language
-        call_keywords = ["we must", "we should", "let us", "our task", "the challenge",
-                         "in our time", "today", "for us", "we are called", "that is why",
-                         "this is what", "this is how"]
+        # ═══════════════════════════════════════════════════════════════
+        # 4. THE CALL - practical/ethical implication (final paragraphs)
+        # ═══════════════════════════════════════════════════════════════
+        call_keywords = [
+            "we must", "we should", "let us", "our task", "the challenge",
+            "in our time", "today", "for us", "we are called", "that is why",
+            "this is what", "this is how", "may we", "it is for us",
+            "the choice", "we can", "we have", "our responsibility",
+        ]
 
-        found_call = False
-        for i, p in enumerate(reversed(paragraphs[-5:])):
-            p_lower = p.lower()
+        # Look in final paragraphs
+        for i in range(len(paragraphs) - 1, max(len(paragraphs) - 5, 0), -1):
+            if i in used_indices:
+                continue
+            p_lower = paragraphs[i].lower()
             if any(kw in p_lower for kw in call_keywords):
-                sections["call"] = self._truncate(p, 400)
-                found_call = True
-                print(f"   DEBUG: Found call at paragraph {len(paragraphs)-i} with keyword")
+                sections["call"] = self._truncate(paragraphs[i], 350)
+                used_indices.add(i)
+                print(f"   DEBUG: Found CALL at paragraph {i+1}")
                 break
 
-        # Fall back to last paragraph if no call found
-        if not found_call and len(paragraphs) >= 2:
-            sections["call"] = self._truncate(paragraphs[-1], 400)
-            print(f"   DEBUG: Using last paragraph as call")
+        # Fallback: use last paragraph
+        if "call" not in sections and len(paragraphs) >= 2:
+            last_idx = len(paragraphs) - 1
+            if last_idx not in used_indices:
+                sections["call"] = self._truncate(paragraphs[last_idx], 350)
+                print(f"   DEBUG: Using last paragraph as CALL")
 
         return sections
 

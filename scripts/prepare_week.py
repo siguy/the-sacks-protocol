@@ -203,6 +203,7 @@ async def generate_essay_summaries(
         title=essay_title,
         text=essay_text,
         parsha="",
+        book="",  # Required field
         series="",
         sefaria_ref="",
     )

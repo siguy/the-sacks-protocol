@@ -74,6 +74,7 @@ class OutputFormatter:
         relevance_score: RelevanceScore | None,
         is_aliyah_relevant: bool,
         cached_essay_sections: dict[str, str] | None = None,
+        cached_aliyah_sections: list[dict] | None = None,
     ) -> FormattedOutput:
         """
         Format the complete daily output.
@@ -90,7 +91,7 @@ class OutputFormatter:
         sections.append(self._format_header(today_info, aliyah_text))
 
         # 2. The Text (with AI-generated summaries)
-        text_section = await self._format_text_section(aliyah_text)
+        text_section = await self._format_text_section(aliyah_text, cached_aliyah_sections)
         sections.append(text_section)
 
         # 3. The Commentator (with verse context and full text)
@@ -148,7 +149,7 @@ class OutputFormatter:
 
         return header
 
-    async def _format_text_section(self, aliyah_text: AliyahText) -> str:
+    async def _format_text_section(self, aliyah_text: AliyahText, cached_sections: list[dict] | None = None) -> str:
         """Format the Torah text section with summaries for each logical section."""
         lines = [
             self.THIN_DIVIDER,
@@ -157,8 +158,13 @@ class OutputFormatter:
             "",
         ]
 
-        # Break aliyah into logical sections and summarize each
-        sections = await self._break_into_sections_and_summarize(aliyah_text)
+        # Use cached sections if available, otherwise generate with Gemini
+        if cached_sections:
+            print("   DEBUG: Using cached aliyah sections")
+            sections = cached_sections
+        else:
+            print("   DEBUG: No cached aliyah sections - generating with Gemini")
+            sections = await self._break_into_sections_and_summarize(aliyah_text)
 
         for i, section in enumerate(sections, 1):
             # Section header with verse range

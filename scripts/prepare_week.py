@@ -86,8 +86,9 @@ async def fetch_all_aliyah_texts(
     parsha_name: str,
     book: str,
     aliyah_retriever: AliyahRetriever,
+    formatter: OutputFormatter,
 ) -> tuple[dict[int, dict], dict[int, AliyahText]]:
-    """Fetch all 7 aliyah texts and return both serializable data and objects."""
+    """Fetch all 7 aliyah texts, generate summaries, and return both serializable data and objects."""
     print(f"\n📖 Fetching all 7 aliyah texts for {parsha_name}...")
 
     # Get aliyah refs from ALIYOT_DATA
@@ -124,9 +125,21 @@ async def fetch_all_aliyah_texts(
             text = await aliyah_retriever.get_aliyah_text(aliyah)
             aliyah_text_objects[aliyah_num] = text
             serialized_texts[aliyah_num] = serialize_aliyah_text(text)
-            print(f"   ✅ Aliyah {aliyah_num}: {len(text.verses)} verses, {len(text.key_verses)} key verses")
+            print(f"   ✅ Aliyah {aliyah_num}: {len(text.verses)} verses")
         except Exception as e:
             print(f"   ❌ Aliyah {aliyah_num}: {e}")
+
+    # Generate Gemini summaries for each aliyah
+    print(f"\n✨ Generating aliyah summaries with Gemini...")
+    for aliyah_num, text in aliyah_text_objects.items():
+        try:
+            print(f"   Aliyah {aliyah_num}: Generating section summaries...")
+            sections = await formatter._break_into_sections_and_summarize(text)
+            serialized_texts[aliyah_num]["sections"] = sections
+            print(f"   ✅ Aliyah {aliyah_num}: {len(sections)} sections generated")
+        except Exception as e:
+            print(f"   ❌ Aliyah {aliyah_num}: Error generating summaries - {e}")
+            serialized_texts[aliyah_num]["sections"] = None
 
     return serialized_texts, aliyah_text_objects
 
@@ -263,9 +276,9 @@ async def prepare_week(parsha_name: str | None = None):
         print(f"   Parsha: {parsha_name}")
         print(f"   Book: {book}")
 
-        # 2. Fetch all aliyah texts (full verses)
+        # 2. Fetch all aliyah texts (full verses) and generate summaries
         serialized_texts, aliyah_text_objects = await fetch_all_aliyah_texts(
-            parsha_name, book, aliyah_retriever
+            parsha_name, book, aliyah_retriever, formatter
         )
 
         if not aliyah_text_objects:

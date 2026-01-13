@@ -224,17 +224,26 @@ class DailyGenerator:
             print(f"   Aliyot: {[a.number for a in today_info.aliyot]}")
             print(f"   Day: {today_info.day_of_week.name}")
 
-            # Get aliyah text from cache
+            # Get aliyah text and cached sections from cache
             print("\n📖 Loading aliyah text from cache...")
             aliyah_texts = []
+            cached_aliyah_sections = None
             for aliyah_num in aliyah_nums:
                 aliyah_data = cache["aliyot"].get(str(aliyah_num))
                 if aliyah_data:
                     text = self._reconstruct_aliyah_text(aliyah_data)
                     aliyah_texts.append(text)
+                    # Get cached sections for the primary aliyah
+                    if aliyah_num == primary_aliyah_num:
+                        cached_aliyah_sections = aliyah_data.get("sections")
                     print(f"   ✅ Aliyah {aliyah_num}: {len(text.verses)} verses")
 
             primary_aliyah_text = self._combine_aliyah_texts(aliyah_texts)
+
+            if cached_aliyah_sections:
+                print(f"   ✅ Cached aliyah summaries loaded")
+            else:
+                print(f"   ⚠️  No cached aliyah summaries")
 
             # Get commentary from cache (keyed by day number 1-6)
             print("\n📜 Loading commentary from cache...")
@@ -278,6 +287,7 @@ class DailyGenerator:
                 relevance_score=None,
                 is_aliyah_relevant=is_aliyah_relevant,
                 cached_essay_sections=cached_sections,
+                cached_aliyah_sections=cached_aliyah_sections,
             )
 
             print(f"   Word count: {output.word_count}")

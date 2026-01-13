@@ -102,24 +102,26 @@ class DailyGenerator:
         """Build TodayInfo from cache data for a specific date."""
         from .calendar import HebrewDate
 
-        # Determine day of week and aliyah number
-        day_of_week = DayOfWeek(for_date.weekday())
-        # Python weekday: Monday=0, Sunday=6
-        # We need: Sunday=0, Monday=1, ...
+        # Determine day of week
+        # Python: Monday=0, Sunday=6
+        # Jewish week: Day 1=Sunday, Day 6=Friday, Day 7=Shabbat
         python_weekday = for_date.weekday()
-        jewish_day = (python_weekday + 1) % 7  # Convert to Sunday=0
+        jewish_day_num = ((python_weekday + 1) % 7) + 1  # Sunday=1, Saturday=7
+
+        # DayOfWeek enum uses Sunday=0
+        day_of_week_enum_val = (python_weekday + 1) % 7
 
         # Map day to aliyah number(s)
         day_to_aliyah = {
-            0: [1],      # Sunday
-            1: [2],      # Monday
-            2: [3],      # Tuesday
-            3: [4],      # Wednesday
-            4: [5],      # Thursday
-            5: [6, 7],   # Friday
-            6: [1],      # Shabbat
+            1: [1],      # Day 1 (Sunday) -> Aliyah 1
+            2: [2],      # Day 2 (Monday) -> Aliyah 2
+            3: [3],      # Day 3 (Tuesday) -> Aliyah 3
+            4: [4],      # Day 4 (Wednesday) -> Aliyah 4
+            5: [5],      # Day 5 (Thursday) -> Aliyah 5
+            6: [6, 7],   # Day 6 (Friday) -> Aliyot 6+7
+            7: [1],      # Day 7 (Shabbat) -> fallback to 1
         }
-        aliyah_nums = day_to_aliyah[jewish_day]
+        aliyah_nums = day_to_aliyah[jewish_day_num]
 
         # Build aliyah objects from cache
         aliyot = []
@@ -144,7 +146,7 @@ class DailyGenerator:
         return TodayInfo(
             gregorian_date=for_date,
             hebrew_date=None,  # Not critical for formatting
-            day_of_week=DayOfWeek(jewish_day),
+            day_of_week=DayOfWeek(day_of_week_enum_val),
             parsha=parsha,
             aliyot=aliyot,
             is_special=False,
@@ -163,21 +165,26 @@ class DailyGenerator:
         """
         target_date = for_date or date.today()
 
-        # Determine day of week (Jewish: Sunday=0)
+        # Determine day of week
+        # Python: Monday=0, Sunday=6
+        # Jewish week: Day 1=Sunday, Day 6=Friday, Day 7=Shabbat
         python_weekday = target_date.weekday()
-        jewish_day = (python_weekday + 1) % 7
+        # Convert to Jewish day number (1-7, where 1=Sunday)
+        jewish_day_num = ((python_weekday + 1) % 7) + 1  # Sunday=1, Monday=2, ..., Saturday=7
+        if jewish_day_num == 7:
+            jewish_day_num = 7  # Shabbat
 
         # Map day to aliyah number(s)
         day_to_aliyah = {
-            0: [1],      # Sunday
-            1: [2],      # Monday
-            2: [3],      # Tuesday
-            3: [4],      # Wednesday
-            4: [5],      # Thursday
-            5: [6, 7],   # Friday
-            6: [1],      # Shabbat
+            1: [1],      # Day 1 (Sunday) -> Aliyah 1
+            2: [2],      # Day 2 (Monday) -> Aliyah 2
+            3: [3],      # Day 3 (Tuesday) -> Aliyah 3
+            4: [4],      # Day 4 (Wednesday) -> Aliyah 4
+            5: [5],      # Day 5 (Thursday) -> Aliyah 5
+            6: [6, 7],   # Day 6 (Friday) -> Aliyot 6+7
+            7: [1],      # Day 7 (Shabbat) -> fallback to 1
         }
-        aliyah_nums = day_to_aliyah[jewish_day]
+        aliyah_nums = day_to_aliyah[jewish_day_num]
         primary_aliyah_num = aliyah_nums[0]
 
         # Try to find cache for current parsha
@@ -229,10 +236,10 @@ class DailyGenerator:
 
             primary_aliyah_text = self._combine_aliyah_texts(aliyah_texts)
 
-            # Get commentary from cache
+            # Get commentary from cache (keyed by day number 1-6)
             print("\n📜 Loading commentary from cache...")
             commentary = None
-            commentary_data = cache.get("commentary", {}).get(str(jewish_day))
+            commentary_data = cache.get("commentary", {}).get(str(jewish_day_num))
             if commentary_data:
                 commentary = self._reconstruct_commentary(commentary_data)
                 print(f"   ✅ {commentary.commentator.name} on {commentary.verse.ref}")

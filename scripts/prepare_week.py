@@ -139,23 +139,40 @@ async def fetch_all_commentary(
     """Pre-select commentary for each aliyah based on day-of-week rotation."""
     print(f"\n📜 Pre-selecting commentary for each day...")
 
-    # Day-of-week to aliyah mapping:
-    # Sunday (0) -> Aliyah 1, Monday (1) -> Aliyah 2, etc.
-    # Friday (5) -> Aliyot 6+7
+    # Day number to aliyah mapping (Day 1 = Sunday, Day 6 = Friday)
+    # This matches the traditional Jewish week
     day_to_aliyah = {
-        0: [1],      # Sunday
-        1: [2],      # Monday
-        2: [3],      # Tuesday
-        3: [4],      # Wednesday
-        4: [5],      # Thursday
-        5: [6, 7],   # Friday
-        6: [1],      # Shabbat (fallback to 1)
+        1: [1],      # Day 1 (Sunday) -> Aliyah 1
+        2: [2],      # Day 2 (Monday) -> Aliyah 2
+        3: [3],      # Day 3 (Tuesday) -> Aliyah 3
+        4: [4],      # Day 4 (Wednesday) -> Aliyah 4
+        5: [5],      # Day 5 (Thursday) -> Aliyah 5
+        6: [6, 7],   # Day 6 (Friday) -> Aliyot 6+7
+    }
+
+    # DayOfWeek enum values (Sunday=0, Monday=1, etc.)
+    day_num_to_enum = {
+        1: DayOfWeek.SUNDAY,
+        2: DayOfWeek.MONDAY,
+        3: DayOfWeek.TUESDAY,
+        4: DayOfWeek.WEDNESDAY,
+        5: DayOfWeek.THURSDAY,
+        6: DayOfWeek.FRIDAY,
+    }
+
+    day_names = {
+        1: "Sunday",
+        2: "Monday",
+        3: "Tuesday",
+        4: "Wednesday",
+        5: "Thursday",
+        6: "Friday",
     }
 
     commentary_cache = {}
 
-    for day_num in range(6):  # Sunday through Friday
-        day_of_week = DayOfWeek(day_num)
+    for day_num in range(1, 7):  # Day 1 (Sunday) through Day 6 (Friday)
+        day_of_week = day_num_to_enum[day_num]
         aliyah_nums = day_to_aliyah[day_num]
 
         # Get key verses from the relevant aliyah(s)
@@ -165,7 +182,7 @@ async def fetch_all_commentary(
                 key_verses.extend(aliyah_text_objects[aliyah_num].key_verses)
 
         if not key_verses:
-            print(f"   Day {day_num}: No key verses available")
+            print(f"   Day {day_num} ({day_names[day_num]}): No key verses available")
             commentary_cache[day_num] = None
             continue
 
@@ -179,12 +196,12 @@ async def fetch_all_commentary(
             )
             if commentary:
                 commentary_cache[day_num] = serialize_commentary(commentary)
-                print(f"   ✅ Day {day_num} ({day_of_week.name}): {commentary.commentator.name} on {commentary.verse.ref}")
+                print(f"   ✅ Day {day_num} ({day_names[day_num]}): {commentary.commentator.name} on {commentary.verse.ref}")
             else:
                 commentary_cache[day_num] = None
-                print(f"   ⚠️  Day {day_num} ({day_of_week.name}): No commentary found")
+                print(f"   ⚠️  Day {day_num} ({day_names[day_num]}): No commentary found")
         except Exception as e:
-            print(f"   ❌ Day {day_num}: Error - {e}")
+            print(f"   ❌ Day {day_num} ({day_names[day_num]}): Error - {e}")
             commentary_cache[day_num] = None
 
     return commentary_cache

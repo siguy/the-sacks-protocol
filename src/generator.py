@@ -2,18 +2,19 @@
 Main Generator/Orchestrator
 
 Ties together all components to generate daily output:
-1. Get today's calendar info (parsha, aliyah)
-2. Fetch aliyah text with Hebrew + English
-3. Select traditional commentary via link graph + rotation
-4. Look up cached Sacks essay (from weekly pre-computation)
-5. Format output for WhatsApp
+1. Load weekly cache (from scripts/prepare_week.py)
+2. Get today's aliyah and commentary from cache
+3. Format output for WhatsApp
+
+If no cache exists, falls back to live API calls (slower).
 
 Weekly pre-computation (scripts/prepare_week.py) handles:
-- Fetching all essays for the parsha
+- Fetching all aliyah texts with full verses
+- Pre-selecting commentary for each day
 - Greedy matching essays to aliyot
 - Generating Gemini summaries for each essay
 
-This separation reduces API calls and enables review before delivery.
+This separation reduces API calls and enables fully offline daily generation.
 """
 
 import asyncio
@@ -24,9 +25,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .sefaria_client import SefariaClient
-from .calendar import JewishCalendar, TodayInfo
-from .aliyah import AliyahRetriever, AliyahText
-from .commentary import CommentarySelector, Commentary
+from .calendar import JewishCalendar, TodayInfo, Aliyah, DayOfWeek, ALIYOT_DATA, Parsha
+from .aliyah import AliyahRetriever, AliyahText, Verse
+from .commentary import CommentarySelector, Commentary, CommentatorInfo
 from .sacks import SacksRetriever, SacksEssay
 from .relevance import RelevanceScorer, RelevanceScore
 from .formatter import OutputFormatter, FormattedOutput
@@ -57,6 +58,99 @@ class DailyGenerator:
         with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
 
+    def _reconstruct_verse(self, data: dict) -> Verse:
+        """Reconstruct a Verse object from cached data."""
+        return Verse(
+            ref=data["ref"],
+            hebrew=data["hebrew"],
+            english=data["english"],
+            link_count=data.get("link_count", 0),
+        )
+
+    def _reconstruct_aliyah_text(self, data: dict) -> AliyahText:
+        """Reconstruct an AliyahText object from cached data."""
+        aliyah_data = data["aliyah"]
+        return AliyahText(
+            aliyah=Aliyah(
+                number=aliyah_data["number"],
+                ref=aliyah_data["ref"],
+                start_verse=aliyah_data["start_verse"],
+                end_verse=aliyah_data["end_verse"],
+            ),
+            verses=[self._reconstruct_verse(v) for v in data["verses"]],
+            key_verses=[self._reconstruct_verse(v) for v in data["key_verses"]],
+            translation_source=data["translation_source"],
+        )
+
+    def _reconstruct_commentary(self, data: dict) -> Commentary:
+        """Reconstruct a Commentary object from cached data."""
+        return Commentary(
+            verse=self._reconstruct_verse(data["verse"]),
+            commentator=CommentatorInfo(
+                name=data["commentator"]["name"],
+                hebrew=data["commentator"]["hebrew"],
+                full_name=data["commentator"]["full_name"],
+                era=data["commentator"]["era"],
+            ),
+            source_ref=data["source_ref"],
+            hebrew_text=data["hebrew_text"],
+            english_text=data["english_text"],
+            selection_reason=data["selection_reason"],
+        )
+
+    def _get_parsha_info_from_cache(self, cache: dict, for_date: date) -> TodayInfo:
+        """Build TodayInfo from cache data for a specific date."""
+        from .calendar import HebrewDate
+
+        # Determine day of week and aliyah number
+        day_of_week = DayOfWeek(for_date.weekday())
+        # Python weekday: Monday=0, Sunday=6
+        # We need: Sunday=0, Monday=1, ...
+        python_weekday = for_date.weekday()
+        jewish_day = (python_weekday + 1) % 7  # Convert to Sunday=0
+
+        # Map day to aliyah number(s)
+        day_to_aliyah = {
+            0: [1],      # Sunday
+            1: [2],      # Monday
+            2: [3],      # Tuesday
+            3: [4],      # Wednesday
+            4: [5],      # Thursday
+            5: [6, 7],   # Friday
+            6: [1],      # Shabbat
+        }
+        aliyah_nums = day_to_aliyah[jewish_day]
+
+        # Build aliyah objects from cache
+        aliyot = []
+        for num in aliyah_nums:
+            aliyah_data = cache["aliyot"].get(str(num), {}).get("aliyah", {})
+            if aliyah_data:
+                aliyot.append(Aliyah(
+                    number=aliyah_data["number"],
+                    ref=aliyah_data["ref"],
+                    start_verse=aliyah_data["start_verse"],
+                    end_verse=aliyah_data["end_verse"],
+                ))
+
+        # Build parsha info
+        parsha = Parsha(
+            name_en=cache["parsha"],
+            name_he="",  # Not stored in cache, but not critical
+            book=cache["book"],
+            order=0,
+        )
+
+        return TodayInfo(
+            gregorian_date=for_date,
+            hebrew_date=None,  # Not critical for formatting
+            day_of_week=DayOfWeek(jewish_day),
+            parsha=parsha,
+            aliyot=aliyot,
+            is_special=False,
+            special_note=None,
+        )
+
     async def generate(self, for_date: date | None = None) -> FormattedOutput:
         """
         Generate the daily output.
@@ -67,95 +161,187 @@ class DailyGenerator:
         Returns:
             Formatted output ready for delivery
         """
-        async with SefariaClient() as client:
-            # Initialize components
-            calendar = JewishCalendar(client)
-            aliyah_retriever = AliyahRetriever(client)
-            commentary_selector = CommentarySelector(client)
-            formatter = OutputFormatter()
+        target_date = for_date or date.today()
 
-            # 1. Get today's info
-            print("📅 Getting calendar info...")
-            today_info = await calendar.get_today_info(for_date)
-            print(f"   Parsha: {today_info.parsha.name_en}")
+        # Determine day of week (Jewish: Sunday=0)
+        python_weekday = target_date.weekday()
+        jewish_day = (python_weekday + 1) % 7
+
+        # Map day to aliyah number(s)
+        day_to_aliyah = {
+            0: [1],      # Sunday
+            1: [2],      # Monday
+            2: [3],      # Tuesday
+            3: [4],      # Wednesday
+            4: [5],      # Thursday
+            5: [6, 7],   # Friday
+            6: [1],      # Shabbat
+        }
+        aliyah_nums = day_to_aliyah[jewish_day]
+        primary_aliyah_num = aliyah_nums[0]
+
+        # Try to find cache for current parsha
+        # We need to determine the parsha - check all caches or use API
+        cache = None
+        today_info = None
+
+        if self.use_cache:
+            # Try to find a matching cache file
+            if CACHE_DIR.exists():
+                for cache_file in CACHE_DIR.glob("*.json"):
+                    try:
+                        with open(cache_file, "r", encoding="utf-8") as f:
+                            potential_cache = json.load(f)
+                        # Check if this cache is for current week
+                        week_of = potential_cache.get("week_of", "")
+                        if week_of:
+                            cache_week = date.fromisoformat(week_of)
+                            # Same week if within 7 days
+                            if abs((target_date - cache_week).days) <= 6:
+                                cache = potential_cache
+                                print(f"📦 Using cached data from: {cache_file.name}")
+                                break
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+
+        if cache:
+            # FULLY OFFLINE MODE - use cached data
+            print("=" * 50)
+            print("THE SACKS PROTOCOL - Daily Generator (OFFLINE)")
+            print("=" * 50)
+            print()
+
+            # Build today_info from cache
+            today_info = self._get_parsha_info_from_cache(cache, target_date)
+            print(f"📅 Parsha: {today_info.parsha.name_en}")
             print(f"   Aliyot: {[a.number for a in today_info.aliyot]}")
+            print(f"   Day: {today_info.day_of_week.name}")
 
-            # 2. Fetch today's aliyah text (only the ones we need for display)
-            print("\n📖 Fetching aliyah text...")
+            # Get aliyah text from cache
+            print("\n📖 Loading aliyah text from cache...")
             aliyah_texts = []
-            for aliyah in today_info.aliyot:
-                text = await aliyah_retriever.get_aliyah_text(aliyah)
-                aliyah_texts.append(text)
-                print(f"   Aliyah {aliyah.number}: {len(text.verses)} verses")
+            for aliyah_num in aliyah_nums:
+                aliyah_data = cache["aliyot"].get(str(aliyah_num))
+                if aliyah_data:
+                    text = self._reconstruct_aliyah_text(aliyah_data)
+                    aliyah_texts.append(text)
+                    print(f"   ✅ Aliyah {aliyah_num}: {len(text.verses)} verses")
 
-            # Combine aliyah texts for Friday (double portion)
             primary_aliyah_text = self._combine_aliyah_texts(aliyah_texts)
 
-            # 3. Select traditional commentary
-            print("\n📜 Selecting commentary...")
-            commentary = await commentary_selector.select_commentary(
-                primary_aliyah_text.key_verses,
-                today_info.day_of_week,
-                today_info.parsha.book,
-            )
-            if commentary:
-                print(f"   Commentator: {commentary.commentator.name}")
-                print(f"   On verse: {commentary.verse.ref}")
+            # Get commentary from cache
+            print("\n📜 Loading commentary from cache...")
+            commentary = None
+            commentary_data = cache.get("commentary", {}).get(str(jewish_day))
+            if commentary_data:
+                commentary = self._reconstruct_commentary(commentary_data)
+                print(f"   ✅ {commentary.commentator.name} on {commentary.verse.ref}")
             else:
-                print("   No commentary found")
+                print("   ⚠️  No cached commentary for today")
 
-            # 4. Get Sacks essay from cache (or compute if no cache)
-            sacks_essay: SacksEssay | None = None
-            cached_sections: dict | None = None
+            # Get essay from cache
+            print("\n✡️ Loading Sacks essay from cache...")
+            sacks_essay = None
+            cached_sections = None
             is_aliyah_relevant = False
-            primary_aliyah_num = today_info.aliyot[0].number
 
-            # Try to load from weekly cache
-            cache = self._load_weekly_cache(today_info.parsha.name_en) if self.use_cache else None
-
-            if cache:
-                print("\n✡️ Loading from weekly cache...")
-                print(f"   Cache computed: {cache.get('computed_at', 'unknown')}")
-
-                # Get assignment for today's aliyah
-                assignment = cache.get("assignments", {}).get(str(primary_aliyah_num))
-
-                if assignment:
-                    # Create SacksEssay object from cache
-                    sacks_essay = SacksEssay(
-                        title=assignment["essay_title"],
-                        text="",  # We don't need full text - we have cached sections
-                        parsha=today_info.parsha.name_en,
-                        series="Covenant and Conversation",
-                        sefaria_ref=assignment.get("essay_sefaria_ref", ""),
-                    )
-                    cached_sections = assignment.get("sections")
-                    is_aliyah_relevant = assignment.get("score_data", {}).get("verse_score", 0) > 0
-
-                    print(f"   ✅ Essay: \"{sacks_essay.title}\"")
-                    if cached_sections:
-                        print(f"   ✅ Using pre-generated summaries")
-                else:
-                    print(f"   ❌ No essay assigned for aliyah {primary_aliyah_num}")
-
+            assignment = cache.get("assignments", {}).get(str(primary_aliyah_num))
+            if assignment:
+                sacks_essay = SacksEssay(
+                    title=assignment["essay_title"],
+                    text="",  # We have cached sections
+                    parsha=today_info.parsha.name_en,
+                    series="Covenant and Conversation",
+                    sefaria_ref=assignment.get("essay_sefaria_ref", ""),
+                )
+                cached_sections = assignment.get("sections")
+                is_aliyah_relevant = assignment.get("score_data", {}).get("verse_score", 0) > 0
+                print(f"   ✅ Essay: \"{sacks_essay.title}\"")
             else:
-                # No cache - fall back to computing (with warning)
-                print("\n⚠️  No weekly cache found!")
-                print("   Run: python3 scripts/prepare_week.py")
-                print("   Falling back to live computation (slower)...")
+                print(f"   ⚠️  No essay assigned for aliyah {primary_aliyah_num}")
 
-                # Fall back to current behavior
+            # Format output
+            print("\n✨ Formatting output...")
+            formatter = OutputFormatter()
+            output = await formatter.format_daily_output(
+                today_info=today_info,
+                aliyah_text=primary_aliyah_text,
+                commentary=commentary,
+                sacks_essay=sacks_essay,
+                relevance_score=None,
+                is_aliyah_relevant=is_aliyah_relevant,
+                cached_essay_sections=cached_sections,
+            )
+
+            print(f"   Word count: {output.word_count}")
+
+            # Save output
+            self._save_output(output, today_info)
+
+            return output
+
+        else:
+            # ONLINE MODE - fall back to live API calls
+            print("=" * 50)
+            print("THE SACKS PROTOCOL - Daily Generator (LIVE)")
+            print("=" * 50)
+            print()
+            print("⚠️  No weekly cache found!")
+            print("   Run: python3 scripts/prepare_week.py")
+            print("   Falling back to live API calls...\n")
+
+            async with SefariaClient() as client:
+                # Initialize components
+                calendar = JewishCalendar(client)
+                aliyah_retriever = AliyahRetriever(client)
+                commentary_selector = CommentarySelector(client)
                 sacks_retriever = SacksRetriever(client)
                 relevance_scorer = RelevanceScorer()
+                formatter = OutputFormatter()
+
+                # 1. Get today's info
+                print("📅 Getting calendar info...")
+                today_info = await calendar.get_today_info(for_date)
+                print(f"   Parsha: {today_info.parsha.name_en}")
+                print(f"   Aliyot: {[a.number for a in today_info.aliyot]}")
+
+                # 2. Fetch aliyah text
+                print("\n📖 Fetching aliyah text...")
+                aliyah_texts = []
+                for aliyah in today_info.aliyot:
+                    text = await aliyah_retriever.get_aliyah_text(aliyah)
+                    aliyah_texts.append(text)
+                    print(f"   Aliyah {aliyah.number}: {len(text.verses)} verses")
+
+                primary_aliyah_text = self._combine_aliyah_texts(aliyah_texts)
+
+                # 3. Select commentary
+                print("\n📜 Selecting commentary...")
+                commentary = await commentary_selector.select_commentary(
+                    primary_aliyah_text.key_verses,
+                    today_info.day_of_week,
+                    today_info.parsha.book,
+                )
+                if commentary:
+                    print(f"   Commentator: {commentary.commentator.name}")
+                    print(f"   On verse: {commentary.verse.ref}")
+                else:
+                    print("   No commentary found")
+
+                # 4. Get Sacks essay
+                sacks_essay = None
+                cached_sections = None
+                is_aliyah_relevant = False
+                primary_aliyah_num = today_info.aliyot[0].number
 
                 sacks_corpus = await sacks_retriever.get_essays_for_parsha(
                     today_info.parsha.name_en,
                     today_info.parsha.book,
                 )
-                print(f"   Found {len(sacks_corpus.essays)} essays")
+                print(f"\n✡️ Found {len(sacks_corpus.essays)} essays")
 
                 if sacks_corpus.essays:
-                    print("\n🎯 Computing weekly essay assignments...")
+                    print("🎯 Computing essay assignments...")
                     all_aliyah_texts = await self._fetch_all_aliyah_texts(
                         today_info.parsha, aliyah_retriever
                     )
@@ -171,26 +357,26 @@ class DailyGenerator:
                     if assignment:
                         sacks_essay, score_data = assignment
                         is_aliyah_relevant = score_data.get("verse_score", 0) > 0
-                        print(f"\n   ✅ Today's essay: \"{sacks_essay.title}\"")
+                        print(f"   ✅ Today's essay: \"{sacks_essay.title}\"")
 
-            # 5. Format output
-            print("\n✨ Formatting output...")
-            output = await formatter.format_daily_output(
-                today_info=today_info,
-                aliyah_text=primary_aliyah_text,
-                commentary=commentary,
-                sacks_essay=sacks_essay,
-                relevance_score=None,
-                is_aliyah_relevant=is_aliyah_relevant,
-                cached_essay_sections=cached_sections,  # Pass cached sections
-            )
+                # 5. Format output
+                print("\n✨ Formatting output...")
+                output = await formatter.format_daily_output(
+                    today_info=today_info,
+                    aliyah_text=primary_aliyah_text,
+                    commentary=commentary,
+                    sacks_essay=sacks_essay,
+                    relevance_score=None,
+                    is_aliyah_relevant=is_aliyah_relevant,
+                    cached_essay_sections=cached_sections,
+                )
 
-            print(f"   Word count: {output.word_count}")
+                print(f"   Word count: {output.word_count}")
 
-            # 6. Save output
-            self._save_output(output, today_info)
+                # 6. Save output
+                self._save_output(output, today_info)
 
-            return output
+                return output
 
     async def _fetch_all_aliyah_texts(
         self,
@@ -203,8 +389,6 @@ class DailyGenerator:
         Returns:
             Dict mapping aliyah number (1-7) to AliyahText
         """
-        from .calendar import Aliyah, ALIYOT_DATA
-
         all_texts = {}
 
         # Get aliyah refs from ALIYOT_DATA
@@ -247,44 +431,19 @@ class DailyGenerator:
 
         return all_texts
 
-    def _extract_keywords(self, aliyah_text: AliyahText) -> list[str]:
-        """
-        Extract keywords from aliyah text for heuristic essay matching.
-
-        Looks for names, places, and significant nouns in the English text.
-        """
-        # Common biblical keywords to look for
-        name_patterns = [
-            "Moses", "Aaron", "Pharaoh", "God", "Lord", "Israel", "Egypt",
-            "Abraham", "Isaac", "Jacob", "Joseph", "burning bush", "bush",
-            "Sinai", "Horeb", "plague", "Exodus", "freedom", "liberation",
-            "slave", "slavery", "covenant", "promise", "fear", "afraid",
-            "name", "names", "I AM", "YHWH", "Midian", "Jethro", "Zipporah",
-        ]
-
-        keywords = []
-
-        # Check English text of key verses for keywords
-        for verse in aliyah_text.key_verses:
-            text_lower = verse.english.lower() if verse.english else ""
-            for pattern in name_patterns:
-                if pattern.lower() in text_lower and pattern not in keywords:
-                    keywords.append(pattern)
-
-        # Also check all verses if we don't have enough keywords
-        if len(keywords) < 3:
-            for verse in aliyah_text.verses[:10]:  # Check first 10 verses
-                text_lower = verse.english.lower() if verse.english else ""
-                for pattern in name_patterns:
-                    if pattern.lower() in text_lower and pattern not in keywords:
-                        keywords.append(pattern)
-
-        return keywords[:10]  # Return top 10 keywords
-
     def _combine_aliyah_texts(self, aliyah_texts: list[AliyahText]) -> AliyahText:
         """Combine multiple aliyah texts (for Friday double portion)."""
         if len(aliyah_texts) == 1:
             return aliyah_texts[0]
+
+        if not aliyah_texts:
+            # Return empty aliyah text
+            return AliyahText(
+                aliyah=Aliyah(number=0, ref="", start_verse="", end_verse=""),
+                verses=[],
+                key_verses=[],
+                translation_source="",
+            )
 
         # Combine verses and key verses
         all_verses = []
@@ -298,8 +457,12 @@ class DailyGenerator:
         all_key_verses.sort(key=lambda v: v.link_count, reverse=True)
 
         # Create combined aliyah info
-        combined_aliyah = aliyah_texts[0].aliyah
-        combined_aliyah.ref = f"{aliyah_texts[0].aliyah.ref} - {aliyah_texts[-1].aliyah.ref}"
+        combined_aliyah = Aliyah(
+            number=aliyah_texts[0].aliyah.number,
+            ref=f"{aliyah_texts[0].aliyah.ref} - {aliyah_texts[-1].aliyah.ref}",
+            start_verse=aliyah_texts[0].aliyah.start_verse,
+            end_verse=aliyah_texts[-1].aliyah.end_verse,
+        )
 
         return AliyahText(
             aliyah=combined_aliyah,
@@ -331,11 +494,6 @@ async def main():
     load_dotenv(override=True)
 
     generator = DailyGenerator()
-
-    print("=" * 50)
-    print("THE SACKS PROTOCOL - Daily Generator")
-    print("=" * 50)
-    print()
 
     try:
         output = await generator.generate()

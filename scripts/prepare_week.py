@@ -219,7 +219,9 @@ async def prepare_week(parsha_name: str | None = None):
 
     async with SefariaClient() as client:
         calendar = JewishCalendar(client)
-        aliyah_retriever = AliyahRetriever(client)
+        # Use skip_link_counting=True for faster weekly prep
+        # Commentary selection still works - it tries verses in order
+        aliyah_retriever = AliyahRetriever(client, skip_link_counting=True)
         commentary_selector = CommentarySelector(client)
         sacks_retriever = SacksRetriever(client)
         relevance_scorer = RelevanceScorer()

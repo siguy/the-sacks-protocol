@@ -48,9 +48,10 @@ class AliyahRetriever:
         "Tanakh: The Holy Scriptures, published by JPS",
     ]
 
-    def __init__(self, client: SefariaClient, max_key_verses: int = 4):
+    def __init__(self, client: SefariaClient, max_key_verses: int = 4, skip_link_counting: bool = False):
         self.client = client
         self.max_key_verses = max_key_verses
+        self.skip_link_counting = skip_link_counting
 
     async def get_aliyah_text(self, aliyah: Aliyah) -> AliyahText:
         """
@@ -370,17 +371,22 @@ class AliyahRetriever:
         The most-linked verses are considered most important.
         To avoid timeout with large aliyot, we sample strategically.
         """
+        # Fast mode: skip link counting, just return first N verses
+        if self.skip_link_counting:
+            print(f"   DEBUG: Skipping link counting (fast mode)")
+            return verses[: self.max_key_verses]
+
         # For large verse sets, sample strategically instead of checking all
-        MAX_TO_CHECK = 15
+        MAX_TO_CHECK = 8  # Reduced from 15 to speed up
 
         if len(verses) <= MAX_TO_CHECK:
             verses_to_check = verses
         else:
-            # Sample: first 5, last 5, and 5 from middle
+            # Sample: first 3, middle 2, last 3
             verses_to_check = (
-                verses[:5] +  # First 5
-                verses[len(verses)//2 - 2 : len(verses)//2 + 3] +  # Middle 5
-                verses[-5:]  # Last 5
+                verses[:3] +  # First 3
+                verses[len(verses)//2 - 1 : len(verses)//2 + 1] +  # Middle 2
+                verses[-3:]  # Last 3
             )
             # Remove duplicates while preserving order
             seen = set()
